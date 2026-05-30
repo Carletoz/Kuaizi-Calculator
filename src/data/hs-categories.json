@@ -1,0 +1,182 @@
+[
+  {
+    "id": "textiles",
+    "label": "Textiles y confecciones",
+    "arancelRate": 0.20,
+    "ivaRate": 0.19,
+    "antidumpingRisk": true,
+    "invimaRequired": false,
+    "exampleHSCodes": ["6109.10.00.00", "6204.62.00.00"]
+  },
+  {
+    "id": "footwear",
+    "label": "Calzado",
+    "arancelRate": 0.20,
+    "ivaRate": 0.19,
+    "antidumpingRisk": true,
+    "invimaRequired": false,
+    "exampleHSCodes": ["6403.99.00.00"]
+  },
+  {
+    "id": "ceramics",
+    "label": "Cerámica y porcelana",
+    "arancelRate": 0.15,
+    "ivaRate": 0.19,
+    "antidumpingRisk": true,
+    "invimaRequired": false,
+    "exampleHSCodes": ["6911.10.00.00"]
+  },
+  {
+    "id": "electronics",
+    "label": "Electrónicos y accesorios",
+    "arancelRate": 0.00,
+    "ivaRate": 0.19,
+    "antidumpingRisk": false,
+    "invimaRequired": false,
+    "exampleHSCodes": ["8517.13.00.00", "8528.72.00.00"]
+  },
+  {
+    "id": "toys",
+    "label": "Juguetes y artículos de juego",
+    "arancelRate": 0.10,
+    "ivaRate": 0.19,
+    "antidumpingRisk": false,
+    "invimaRequired": false,
+    "exampleHSCodes": ["9503.00.22.00"]
+  },
+  {
+    "id": "furniture",
+    "label": "Muebles y accesorios del hogar",
+    "arancelRate": 0.15,
+    "ivaRate": 0.19,
+    "antidumpingRisk": false,
+    "invimaRequired": false,
+    "exampleHSCodes": ["9403.60.00.00"]
+  },
+  {
+    "id": "machinery",
+    "label": "Maquinaria y equipos industriales",
+    "arancelRate": 0.05,
+    "ivaRate": 0.19,
+    "antidumpingRisk": false,
+    "invimaRequired": false,
+    "exampleHSCodes": ["8479.89.90.00"]
+  },
+  {
+    "id": "hardware",
+    "label": "Herramientas y ferretería",
+    "arancelRate": 0.10,
+    "ivaRate": 0.19,
+    "antidumpingRisk": false,
+    "invimaRequired": false,
+    "exampleHSCodes": ["8203.20.00.00"]
+  },
+  {
+    "id": "plastics",
+    "label": "Plásticos y manufacturas",
+    "arancelRate": 0.10,
+    "ivaRate": 0.19,
+    "antidumpingRisk": false,
+    "invimaRequired": false,
+    "exampleHSCodes": ["3924.10.00.00"]
+  },
+  {
+    "id": "cosmetics",
+    "label": "Cosméticos y cuidado personal",
+    "arancelRate": 0.15,
+    "ivaRate": 0.19,
+    "antidumpingRisk": false,
+    "invimaRequired": true,
+    "exampleHSCodes": ["3304.99.00.00"]
+  },
+  {
+    "id": "supplements",
+    "label": "Suplementos alimenticios",
+    "arancelRate": 0.15,
+    "ivaRate": 0.19,
+    "antidumpingRisk": false,
+    "invimaRequired": true,
+    "exampleHSCodes": ["2106.90.79.00"]
+  },
+  {
+    "id": "food",
+    "label": "Alimentos procesados",
+    "arancelRate": 0.20,
+    "ivaRate": 0.19,
+    "antidumpingRisk": false,
+    "invimaRequired": true,
+    "exampleHSCodes": ["1902.30.00.00", "2103.90.00.00"]
+  },
+  {
+    "id": "steel",
+    "label": "Acero y productos metálicos",
+    "arancelRate": 0.10,
+    "ivaRate": 0.19,
+    "antidumpingRisk": true,
+    "invimaRequired": false,
+    "exampleHSCodes": ["7214.20.00.00", "7308.90.00.00"]
+  },
+  {
+    "id": "sporting",
+    "label": "Artículos deportivos",
+    "arancelRate": 0.10,
+    "ivaRate": 0.19,
+    "antidumpingRisk": false,
+    "invimaRequired": false,
+    "exampleHSCodes": ["9506.62.00.00"]
+  },
+  {
+    "id": "packaging",
+    "label": "Materiales de embalaje",
+    "arancelRate": 0.10,
+    "ivaRate": 0.19,
+    "antidumpingRisk": false,
+    "invimaRequired": false,
+    "exampleHSCodes": ["4819.10.00.00"]
+  },
+  {
+    "id": "lighting",
+    "label": "Iluminación y electricidad",
+    "arancelRate": 0.05,
+    "ivaRate": 0.19,
+    "antidumpingRisk": false,
+    "invimaRequired": false,
+    "exampleHSCodes": ["9405.40.00.00"]
+  },
+  {
+    "id": "bags",
+    "label": "Bolsos y marroquinería",
+    "arancelRate": 0.20,
+    "ivaRate": 0.19,
+    "antidumpingRisk": false,
+    "invimaRequired": false,
+    "exampleHSCodes": ["4202.22.00.00", "4202.92.00.00"]
+  },
+  {
+    "id": "stationery",
+    "label": "Papelería y artículos de oficina",
+    "arancelRate": 0.10,
+    "ivaRate": 0.19,
+    "antidumpingRisk": false,
+    "invimaRequired": false,
+    "exampleHSCodes": ["4820.10.00.00"]
+  },
+  {
+    "id": "chemicals",
+    "label": "Químicos e insumos industriales",
+    "arancelRate": 0.05,
+    "ivaRate": 0.05,
+    "antidumpingRisk": false,
+    "invimaRequired": false,
+    "exampleHSCodes": ["3808.91.00.00", "2814.10.00.00"]
+  },
+  {
+    "id": "other",
+    "label": "Otros / Código manual",
+    "arancelRate": 0.00,
+    "ivaRate": 0.19,
+    "antidumpingRisk": false,
+    "invimaRequired": false,
+    "exampleHSCodes": []
+  }
+]

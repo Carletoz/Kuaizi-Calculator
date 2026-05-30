@@ -1,0 +1,55 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ─── Print / PDF export styles ────────────────────────────────────────────── */
+@media print {
+  /* Hide all form and navigation elements */
+  .calculator-form,
+  .app-header nav,
+  .app-header button,
+  .export-button,
+  .freight-mode-selector,
+  input,
+  select,
+  textarea,
+  label,
+  .section-form,
+  .warning-banner,
+  .no-print {
+    display: none !important;
+  }
+
+  /* Show results panel at full width */
+  .results-panel {
+    display: block !important;
+    width: 100% !important;
+    position: static !important;
+    max-width: 100% !important;
+  }
+
+  .print-header {
+    display: block !important;
+  }
+
+  /* Force brand colors in print */
+  * {
+    -webkit-print-color-adjust: exact !important;
+    color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  /* Prevent rows from breaking across pages */
+  .result-row {
+    page-break-inside: avoid;
+  }
+
+  body {
+    background: white !important;
+  }
+}
+
+/* Hide print-only elements in screen view */
+.print-header {
+  display: none;
+}

@@ -11,8 +11,9 @@ interface ClienteInputs {
   lengthCm: number;
   widthCm: number;
   heightCm: number;
-  airRatePerKgUsd: number;
-  seaRatePerCbmUsd: number;
+  airCostPerKgUsd: number;
+  airDeclaredFreightUsd: number;
+  seaCostPerCbmUsd: number;
   arancelPct: number;
   trm: number;
 }
@@ -21,8 +22,7 @@ interface ModeResult {
   freightUsd: number;
   insuranceUsd: number;
   cifUsd: number;
-  arancelUsd: number;
-  ivaUsd: number;
+  impuestosUsd: number;
   totalUsd: number;
   perUnitUsd: number;
   perUnitCop: number;
@@ -35,8 +35,9 @@ const DEFAULT_INPUTS: ClienteInputs = {
   lengthCm: 0,
   widthCm: 0,
   heightCm: 0,
-  airRatePerKgUsd: 0,
-  seaRatePerCbmUsd: 0,
+  airCostPerKgUsd: 0,
+  airDeclaredFreightUsd: 0,
+  seaCostPerCbmUsd: 0,
   arancelPct: 10,
   trm: 0,
 };
@@ -52,10 +53,11 @@ function calcMode(
   const cifUsd = exwTotal + freightUsd + insuranceUsd;
   const arancelUsd = cifUsd * arancelRate;
   const ivaUsd = (cifUsd + arancelUsd) * IVA_RATE;
-  const totalUsd = cifUsd + arancelUsd + ivaUsd;
+  const impuestosUsd = arancelUsd + ivaUsd;
+  const totalUsd = cifUsd + impuestosUsd;
   const perUnitUsd = totalUsd / quantity;
   const perUnitCop = trm > 0 ? perUnitUsd * trm : 0;
-  return { freightUsd, insuranceUsd, cifUsd, arancelUsd, ivaUsd, totalUsd, perUnitUsd, perUnitCop };
+  return { freightUsd, insuranceUsd, cifUsd, impuestosUsd, totalUsd, perUnitUsd, perUnitCop };
 }
 
 function fmtUSD(v: number): string {
@@ -108,15 +110,17 @@ function ResultCard({ mode, result, exwUsd, arancelPct, isCheaper, bothPresent }
 
       <div className="p-4 space-y-1.5">
         <ResultRow label="Precio EXW" value={fmtUSD(exwUsd)} />
-        <ResultRow label="Flete" value={fmtUSD(result.freightUsd)} />
+        <ResultRow label="Costo de envío" value={fmtUSD(result.freightUsd)} />
         <ResultRow label="Seguro (0.35%)" value={fmtUSD(result.insuranceUsd)} />
 
         <div className="border-t border-gray-100 pt-1.5">
           <ResultRow label="CIF" value={fmtUSD(result.cifUsd)} bold />
         </div>
 
-        <ResultRow label={`Arancel (${arancelPct}%)`} value={fmtUSD(result.arancelUsd)} />
-        <ResultRow label="IVA (19%)" value={fmtUSD(result.ivaUsd)} />
+        <ResultRow
+          label={`Impuestos (arancel ${arancelPct}% + IVA 19%)`}
+          value={fmtUSD(result.impuestosUsd)}
+        />
 
         <div className="border-t border-gray-200 pt-3 mt-1">
           <div className="flex items-start justify-between gap-2">
@@ -150,9 +154,9 @@ function ResultRow({
   bold?: boolean;
 }) {
   return (
-    <div className={`flex justify-between text-sm ${bold ? 'font-semibold' : ''}`}>
-      <span className="text-gray-500">{label}</span>
-      <span className="text-kuaizi-ink">{value}</span>
+    <div className={`flex justify-between items-start gap-2 text-sm ${bold ? 'font-semibold' : ''}`}>
+      <span className="text-gray-500 leading-tight">{label}</span>
+      <span className="text-kuaizi-ink shrink-0">{value}</span>
     </div>
   );
 }
@@ -170,26 +174,17 @@ export function ClienteView() {
     const exwTotal = inp.unitPriceUsd * inp.quantity;
     const canCalc = inp.quantity > 0 && inp.unitPriceUsd > 0;
 
+    const airFreight = chargeableKg * inp.quantity * inp.airCostPerKgUsd + inp.airDeclaredFreightUsd;
+    const seaFreight = totalCbm * inp.seaCostPerCbmUsd;
+
     return {
       air:
-        canCalc && inp.airRatePerKgUsd > 0
-          ? calcMode(
-              exwTotal,
-              chargeableKg * inp.quantity * inp.airRatePerKgUsd,
-              arancelRate,
-              inp.trm,
-              inp.quantity
-            )
+        canCalc && inp.airCostPerKgUsd > 0
+          ? calcMode(exwTotal, airFreight, arancelRate, inp.trm, inp.quantity)
           : null,
       sea:
-        canCalc && inp.seaRatePerCbmUsd > 0
-          ? calcMode(
-              exwTotal,
-              totalCbm * inp.seaRatePerCbmUsd,
-              arancelRate,
-              inp.trm,
-              inp.quantity
-            )
+        canCalc && inp.seaCostPerCbmUsd > 0
+          ? calcMode(exwTotal, seaFreight, arancelRate, inp.trm, inp.quantity)
           : null,
       volWeightKg: volWeightKgPerUnit,
       chargeableKg,
@@ -267,7 +262,7 @@ export function ClienteView() {
               label="TRM"
               value={inp.trm}
               onChange={set('trm')}
-              suffix="COP/USD"
+              suffix="COP"
               step={1}
               min={0}
             />
@@ -277,31 +272,44 @@ export function ClienteView() {
 
       {/* Freight rate inputs */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        {/* Avión */}
         <div className="rounded-xl border-2 border-amber-300 bg-white shadow-sm p-4">
           <div className="flex items-center gap-2 mb-3">
             <span className="text-xl">✈️</span>
             <span className="font-bold text-amber-700">Avión</span>
           </div>
-          <NumberField
-            label="Tarifa de flete"
-            value={inp.airRatePerKgUsd}
-            onChange={set('airRatePerKgUsd')}
-            prefix="$"
-            hint="USD/kg"
-            step={0.01}
-            min={0}
-          />
+          <div className="space-y-3">
+            <NumberField
+              label="Costo por kg"
+              value={inp.airCostPerKgUsd}
+              onChange={set('airCostPerKgUsd')}
+              prefix="$"
+              hint="USD/kg"
+              step={0.01}
+              min={0}
+            />
+            <NumberField
+              label="Costo declarado flete"
+              value={inp.airDeclaredFreightUsd}
+              onChange={set('airDeclaredFreightUsd')}
+              prefix="$"
+              hint="USD"
+              step={0.01}
+              min={0}
+            />
+          </div>
         </div>
 
+        {/* Barco */}
         <div className="rounded-xl border-2 border-emerald-300 bg-white shadow-sm p-4">
           <div className="flex items-center gap-2 mb-3">
             <span className="text-xl">🚢</span>
             <span className="font-bold text-emerald-700">Barco</span>
           </div>
           <NumberField
-            label="Tarifa de flete"
-            value={inp.seaRatePerCbmUsd}
-            onChange={set('seaRatePerCbmUsd')}
+            label="Costo por CBM"
+            value={inp.seaCostPerCbmUsd}
+            onChange={set('seaCostPerCbmUsd')}
             prefix="$"
             hint="USD/CBM"
             step={1}
@@ -315,17 +323,17 @@ export function ClienteView() {
         <div className="grid grid-cols-3 gap-2">
           {[
             { label: 'Peso volumétrico', value: `${volWeightKg.toFixed(3)} kg` },
-            { label: 'Peso cobrable\n(aire)', value: `${chargeableKg.toFixed(3)} kg` },
-            { label: 'Volumen', value: `${cbm.toFixed(4)} m³` },
+            { label: 'Peso tomado', value: `${chargeableKg.toFixed(3)} kg` },
+            { label: 'Volumen (CBM)', value: `${cbm.toFixed(4)} m³` },
           ].map(({ label, value }) => (
             <div
               key={label}
-              className="rounded-lg bg-gray-50 border border-gray-100 p-3 text-center"
+              className="rounded-lg bg-kuaizi-secondary/10 border border-kuaizi-secondary/20 p-3 text-center"
             >
-              <div className="text-xs text-gray-400 uppercase tracking-wide leading-tight mb-1 whitespace-pre-line">
+              <div className="text-xs text-kuaizi-secondary/60 font-semibold uppercase tracking-wide leading-tight mb-1">
                 {label}
               </div>
-              <div className="text-sm font-semibold text-kuaizi-ink">{value}</div>
+              <div className="text-sm font-bold text-kuaizi-secondary">{value}</div>
             </div>
           ))}
         </div>

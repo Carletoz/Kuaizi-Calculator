@@ -37,7 +37,7 @@ export function NumberField({
   };
 
   return (
-    <div className={`flex flex-col gap-1 ${className}`}>
+    <div className={`flex flex-col gap-1 min-w-0 ${className}`}>
       <label className="text-sm font-medium text-kuaizi-ink">
         {label}
         {hint && (

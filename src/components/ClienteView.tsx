@@ -1,7 +1,8 @@
 import { useState, useMemo } from 'react';
 import { NumberField } from '@/components/ui/NumberField';
+import { ALL_HS_CATEGORIES, getHSCategory } from '@/data/hs-categories';
 
-const IVA_RATE = 0.19;
+const FALLBACK_IVA_RATE = 0.19;
 const INSURANCE_RATE = 0.0035;
 
 interface ClienteInputs {
@@ -12,9 +13,8 @@ interface ClienteInputs {
   widthCm: number;
   heightCm: number;
   airCostPerKgUsd: number;
-  airDeclaredFreightUsd: number;
   seaCostPerCbmUsd: number;
-  arancelPct: number;
+  hsCategoryId: string;
   trm: number;
 }
 
@@ -36,23 +36,23 @@ const DEFAULT_INPUTS: ClienteInputs = {
   widthCm: 0,
   heightCm: 0,
   airCostPerKgUsd: 0,
-  airDeclaredFreightUsd: 0,
   seaCostPerCbmUsd: 0,
-  arancelPct: 10,
-  trm: 0,
+  hsCategoryId: '',
+  trm: 4200,
 };
 
 function calcMode(
   exwTotal: number,
   freightUsd: number,
   arancelRate: number,
+  ivaRate: number,
   trm: number,
   quantity: number
 ): ModeResult {
   const insuranceUsd = (exwTotal + freightUsd) * INSURANCE_RATE;
   const cifUsd = exwTotal + freightUsd + insuranceUsd;
   const arancelUsd = cifUsd * arancelRate;
-  const ivaUsd = (cifUsd + arancelUsd) * IVA_RATE;
+  const ivaUsd = (cifUsd + arancelUsd) * ivaRate;
   const impuestosUsd = arancelUsd + ivaUsd;
   const totalUsd = cifUsd + impuestosUsd;
   const perUnitUsd = totalUsd / quantity;
@@ -78,11 +78,13 @@ interface ResultCardProps {
   result: ModeResult;
   exwUsd: number;
   arancelPct: number;
+  ivaPct: number;
   isCheaper: boolean;
   bothPresent: boolean;
+  isPending: boolean;
 }
 
-function ResultCard({ mode, result, exwUsd, arancelPct, isCheaper, bothPresent }: ResultCardProps) {
+function ResultCard({ mode, result, exwUsd, arancelPct, ivaPct, isCheaper, bothPresent, isPending }: ResultCardProps) {
   const isAir = mode === 'air';
   return (
     <div
@@ -110,35 +112,61 @@ function ResultCard({ mode, result, exwUsd, arancelPct, isCheaper, bothPresent }
 
       <div className="p-4 space-y-1.5">
         <ResultRow label="Precio EXW" value={fmtUSD(exwUsd)} />
-        <ResultRow label="Costo de envío" value={fmtUSD(result.freightUsd)} />
-        <ResultRow label="Seguro (0.35%)" value={fmtUSD(result.insuranceUsd)} />
 
-        <div className="border-t border-gray-100 pt-1.5">
-          <ResultRow label="CIF" value={fmtUSD(result.cifUsd)} bold />
-        </div>
+        {isPending ? (
+          <p className="text-xs text-gray-400 italic py-2">
+            Ingresá el costo de flete para ver el estimado
+          </p>
+        ) : (
+          <>
+            <ResultRow label="Costo de envío" value={fmtUSD(result.freightUsd)} />
+            <ResultRow label="Seguro (0.35%)" value={fmtUSD(result.insuranceUsd)} />
 
-        <ResultRow
-          label={`Impuestos (arancel ${arancelPct}% + IVA 19%)`}
-          value={fmtUSD(result.impuestosUsd)}
-        />
+            <div className="border-t border-gray-100 pt-1.5">
+              <ResultRow label="CIF" value={fmtUSD(result.cifUsd)} bold />
+            </div>
 
-        <div className="border-t border-gray-200 pt-3 mt-1">
-          <div className="flex items-start justify-between gap-2">
-            <span className="text-xs font-bold uppercase tracking-wide text-gray-400 mt-1.5">
-              Total / unidad
-            </span>
-            <div className="text-right">
-              <div
-                className={`text-2xl font-bold ${isAir ? 'text-amber-600' : 'text-emerald-600'}`}
-              >
-                {fmtUSD(result.perUnitUsd)}
+            <ResultRow
+              label={`Impuestos (arancel ${arancelPct}% + IVA ${ivaPct}%)`}
+              value={fmtUSD(result.impuestosUsd)}
+            />
+
+            <div className="border-t border-gray-200 pt-3 mt-1">
+              <div className="flex items-start justify-between gap-2">
+                <span className="text-xs font-bold uppercase tracking-wide text-gray-400 mt-1.5">
+                  Total / unidad
+                </span>
+                <div className="text-right">
+                  <div
+                    className={`text-2xl font-bold ${isAir ? 'text-amber-600' : 'text-emerald-600'}`}
+                  >
+                    {fmtUSD(result.perUnitUsd)}
+                  </div>
+                  {result.perUnitCop > 0 && (
+                    <div className="text-xs text-gray-400 mt-0.5">{fmtCOP(result.perUnitCop)}</div>
+                  )}
+                </div>
               </div>
-              {result.perUnitCop > 0 && (
-                <div className="text-xs text-gray-400 mt-0.5">{fmtCOP(result.perUnitCop)}</div>
-              )}
+            </div>
+          </>
+        )}
+
+        {isPending && (
+          <div className="border-t border-gray-200 pt-3 mt-1">
+            <div className="flex items-start justify-between gap-2">
+              <span className="text-xs font-bold uppercase tracking-wide text-gray-400 mt-1.5">
+                Total / unidad
+              </span>
+              <div className="text-right">
+                <div
+                  className={`text-2xl font-bold ${isAir ? 'text-amber-300' : 'text-emerald-300'}`}
+                >
+                  —
+                </div>
+              </div>
             </div>
           </div>
-        </div>
+        )}
       </div>
     </div>
   );
@@ -164,41 +192,52 @@ function ResultRow({
 export function ClienteView() {
   const [inp, setInp] = useState<ClienteInputs>(DEFAULT_INPUTS);
   const set = (k: keyof ClienteInputs) => (v: number) => setInp((prev) => ({ ...prev, [k]: v }));
+  const setStr = (k: keyof ClienteInputs) => (v: string) => setInp((prev) => ({ ...prev, [k]: v }));
 
-  const { air, sea, volWeightKg, chargeableKg, cbm } = useMemo(() => {
+  const { air, sea, volWeightKg, chargeableKg, cbm, arancelPct, ivaPct, airPending, seaPending } = useMemo(() => {
     const cbmPerUnit = (inp.lengthCm * inp.widthCm * inp.heightCm) / 1_000_000;
     const volWeightKgPerUnit = (inp.lengthCm * inp.widthCm * inp.heightCm) / 6000;
     const chargeableKg = Math.max(inp.unitWeightKg, volWeightKgPerUnit);
     const totalCbm = cbmPerUnit * Math.max(inp.quantity, 1);
-    const arancelRate = inp.arancelPct / 100;
+
+    const cat = getHSCategory(inp.hsCategoryId);
+    const arancelRate = cat ? cat.arancelRate : 0;
+    const ivaRate = cat ? cat.ivaRate : FALLBACK_IVA_RATE;
+    const arancelPct = Math.round(arancelRate * 100);
+    const ivaPct = Math.round(ivaRate * 100);
+
     const exwTotal = inp.unitPriceUsd * inp.quantity;
     const canCalc = inp.quantity > 0 && inp.unitPriceUsd > 0;
 
-    const airFreight = chargeableKg * inp.quantity * inp.airCostPerKgUsd + inp.airDeclaredFreightUsd;
+    const airFreight = chargeableKg * inp.quantity * inp.airCostPerKgUsd;
     const seaFreight = totalCbm * inp.seaCostPerCbmUsd;
 
+    const airPending = inp.airCostPerKgUsd === 0;
+    const seaPending = inp.seaCostPerCbmUsd === 0;
+
     return {
-      air:
-        canCalc && inp.airCostPerKgUsd > 0
-          ? calcMode(exwTotal, airFreight, arancelRate, inp.trm, inp.quantity)
-          : null,
-      sea:
-        canCalc && inp.seaCostPerCbmUsd > 0
-          ? calcMode(exwTotal, seaFreight, arancelRate, inp.trm, inp.quantity)
-          : null,
+      air: canCalc ? calcMode(exwTotal, airFreight, arancelRate, ivaRate, inp.trm, inp.quantity) : null,
+      sea: canCalc ? calcMode(exwTotal, seaFreight, arancelRate, ivaRate, inp.trm, inp.quantity) : null,
       volWeightKg: volWeightKgPerUnit,
       chargeableKg,
       cbm: totalCbm,
+      arancelPct,
+      ivaPct,
+      airPending,
+      seaPending,
     };
   }, [inp]);
 
+  const bothComplete = !airPending && !seaPending;
   const cheaperIs: 'air' | 'sea' | null =
-    air && sea ? (air.perUnitUsd <= sea.perUnitUsd ? 'air' : 'sea') : null;
+    air && sea && bothComplete ? (air.perUnitUsd <= sea.perUnitUsd ? 'air' : 'sea') : null;
 
   const showDims =
     inp.lengthCm > 0 || inp.widthCm > 0 || inp.heightCm > 0 || inp.unitWeightKg > 0;
 
   const exwUsd = inp.unitPriceUsd * inp.quantity;
+
+  const selectedCategory = getHSCategory(inp.hsCategoryId) ?? null;
 
   return (
     <div className="space-y-5">
@@ -250,14 +289,28 @@ export function ClienteView() {
           </div>
 
           <div className="grid grid-cols-2 gap-3">
-            <NumberField
-              label="Arancel"
-              value={inp.arancelPct}
-              onChange={set('arancelPct')}
-              suffix="%"
-              step={0.5}
-              min={0}
-            />
+            <div className="flex flex-col gap-1 min-w-0">
+              <label className="text-sm font-medium text-kuaizi-ink">
+                Categoría de producto
+              </label>
+              <select
+                value={inp.hsCategoryId}
+                onChange={(e) => setStr('hsCategoryId')(e.target.value)}
+                className="rounded-md border border-gray-300 bg-white text-sm text-kuaizi-ink px-3 py-2 focus:outline-none focus:border-kuaizi-accent focus:ring-1 focus:ring-kuaizi-accent"
+              >
+                <option value="">— Seleccioná una categoría —</option>
+                {ALL_HS_CATEGORIES.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.label}
+                  </option>
+                ))}
+              </select>
+              {selectedCategory && (
+                <p className="text-xs text-gray-400 mt-0.5">
+                  Arancel: {arancelPct}% · IVA: {ivaPct}%
+                </p>
+              )}
+            </div>
             <NumberField
               label="TRM"
               value={inp.trm}
@@ -285,15 +338,6 @@ export function ClienteView() {
               onChange={set('airCostPerKgUsd')}
               prefix="$"
               hint="USD/kg"
-              step={0.01}
-              min={0}
-            />
-            <NumberField
-              label="Costo declarado flete"
-              value={inp.airDeclaredFreightUsd}
-              onChange={set('airDeclaredFreightUsd')}
-              prefix="$"
-              hint="USD"
               step={0.01}
               min={0}
             />
@@ -340,26 +384,30 @@ export function ClienteView() {
       )}
 
       {/* Result comparison cards */}
-      {(air || sea) && (
+      {(air !== null || sea !== null) && (
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          {air && (
+          {air !== null && (
             <ResultCard
               mode="air"
               result={air}
               exwUsd={exwUsd}
-              arancelPct={inp.arancelPct}
+              arancelPct={arancelPct}
+              ivaPct={ivaPct}
               isCheaper={cheaperIs === 'air'}
-              bothPresent={!!(air && sea)}
+              bothPresent={bothComplete}
+              isPending={airPending}
             />
           )}
-          {sea && (
+          {sea !== null && (
             <ResultCard
               mode="sea"
               result={sea}
               exwUsd={exwUsd}
-              arancelPct={inp.arancelPct}
+              arancelPct={arancelPct}
+              ivaPct={ivaPct}
               isCheaper={cheaperIs === 'sea'}
-              bothPresent={!!(air && sea)}
+              bothPresent={bothComplete}
+              isPending={seaPending}
             />
           )}
         </div>

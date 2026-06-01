@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 
 interface NumberFieldProps {
   label: string;
@@ -22,17 +22,30 @@ export function NumberField({
   prefix,
   suffix,
   placeholder = '0',
-  min,
-  max,
-  step,
+  min: _min,
+  max: _max,
+  step: _step,
   className = '',
   hint,
   readOnly = false,
 }: NumberFieldProps) {
+  const [text, setText] = useState(value === 0 ? '' : String(value));
+
+  // Sync display when parent resets value externally (e.g. DEFAULT_INPUTS)
+  useEffect(() => {
+    const normalized = text.replace(',', '.');
+    const parsed = normalized === '' ? 0 : parseFloat(normalized);
+    if ((isNaN(parsed) ? 0 : parsed) !== value) {
+      setText(value === 0 ? '' : String(value));
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [value]);
+
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const raw = e.target.value;
-    // Empty string maps to 0
-    const parsed = raw === '' ? 0 : parseFloat(raw);
+    setText(raw);
+    const normalized = raw.replace(',', '.');
+    const parsed = normalized === '' ? 0 : parseFloat(normalized);
     onChange(isNaN(parsed) ? 0 : parsed);
   };
 
@@ -53,13 +66,11 @@ export function NumberField({
           </span>
         )}
         <input
-          type="number"
-          value={value === 0 ? '' : value}
+          type="text"
+          inputMode="decimal"
+          value={text}
           onChange={handleChange}
           placeholder={placeholder}
-          min={min}
-          max={max}
-          step={step}
           readOnly={readOnly}
           className={`
             flex-1 px-3 py-2 text-sm text-kuaizi-ink bg-transparent outline-none

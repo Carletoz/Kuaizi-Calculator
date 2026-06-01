@@ -2,6 +2,10 @@
 @tailwind components;
 @tailwind utilities;
 
+body {
+  overflow-x: hidden;
+}
+
 /* ─── Print / PDF export styles ────────────────────────────────────────────── */
 @media print {
   /* Hide all form and navigation elements */

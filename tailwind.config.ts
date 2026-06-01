@@ -6,7 +6,7 @@ export default {
     extend: {
       colors: {
         kuaizi: {
-          primary: '#E63946',
+          primary: '#F07820',
           secondary: '#1D3557',
           accent: '#457B9D',
           light: '#F1FAEE',

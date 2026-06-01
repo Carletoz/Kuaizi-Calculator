@@ -9,7 +9,7 @@ export function SubForm_LCL() {
     <div className="space-y-3 rounded-md bg-gray-50 p-3 border border-gray-200">
       <p className="text-xs font-medium text-gray-600 uppercase tracking-wide">LCL — Consolidado</p>
 
-      <div className="flex gap-3 text-xs text-gray-600 bg-white rounded border border-gray-200 p-2">
+      <div className="flex flex-wrap gap-3 text-xs text-gray-600 bg-white rounded border border-gray-200 p-2">
         <span>
           Volumen: <strong>{result.volumeCbm.toFixed(3)} m³</strong>
         </span>

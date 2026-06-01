@@ -62,7 +62,7 @@ export type Action =
 // ── Initial state ─────────────────────────────────────────────────────────────
 
 export const initialState: CalculatorState = {
-  mode: 'completo',
+  mode: 'cliente',
   ddp: {
     cbmTotal: 0,
     tarifaDdpCopPerCbm: 0,

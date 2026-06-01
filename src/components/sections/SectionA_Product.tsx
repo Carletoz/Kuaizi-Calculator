@@ -123,7 +123,6 @@ export function SectionA_Product() {
                 payload: { dimensionsCm: { ...product.dimensionsCm, l: v } },
               })
             }
-            suffix="cm"
             min={0}
           />
           <NumberField
@@ -135,7 +134,6 @@ export function SectionA_Product() {
                 payload: { dimensionsCm: { ...product.dimensionsCm, w: v } },
               })
             }
-            suffix="cm"
             min={0}
           />
           <NumberField
@@ -147,7 +145,6 @@ export function SectionA_Product() {
                 payload: { dimensionsCm: { ...product.dimensionsCm, h: v } },
               })
             }
-            suffix="cm"
             min={0}
           />
         </div>

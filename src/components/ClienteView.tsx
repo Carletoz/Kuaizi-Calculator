@@ -1,6 +1,8 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useCallback } from 'react';
 import { NumberField } from '@/components/ui/NumberField';
 import { ALL_HS_CATEGORIES, getHSCategory } from '@/data/hs-categories';
+import { ScanButton } from '@/components/scan/ScanButton';
+import type { ScanResult } from '@/lib/scan/openai-vision';
 
 const FALLBACK_IVA_RATE = 0.19;
 const INSURANCE_RATE = 0.0035;
@@ -194,6 +196,20 @@ export function ClienteView() {
   const set = (k: keyof ClienteInputs) => (v: number) => setInp((prev) => ({ ...prev, [k]: v }));
   const setStr = (k: keyof ClienteInputs) => (v: string) => setInp((prev) => ({ ...prev, [k]: v }));
 
+  const handleScanResult = useCallback((result: ScanResult) => {
+    setInp(prev => {
+      const cat = getHSCategory(result.hsCategoryId);
+      return {
+        ...prev,
+        unitWeightKg: result.weightKg,
+        lengthCm: result.dimensionsCm.l,
+        widthCm: result.dimensionsCm.w,
+        heightCm: result.dimensionsCm.h,
+        ...(cat ? { hsCategoryId: result.hsCategoryId } : {}),
+      };
+    });
+  }, []);
+
   const { air, sea, volWeightKg, chargeableKg, cbm, arancelPct, ivaPct, airPending, seaPending } = useMemo(() => {
     const cbmPerUnit = (inp.lengthCm * inp.widthCm * inp.heightCm) / 1_000_000;
     const volWeightKgPerUnit = (inp.lengthCm * inp.widthCm * inp.heightCm) / 6000;
@@ -247,6 +263,7 @@ export function ClienteView() {
           Datos del producto
         </h2>
         <div className="space-y-3">
+          <ScanButton onScanResult={handleScanResult} />
           <div className="grid grid-cols-2 gap-3">
             <NumberField
               label="Precio unitario"

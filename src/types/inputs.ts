@@ -1,6 +1,6 @@
 import type { Currency, FreightMode, Incoterm } from './domain';
 
-export type Mode = 'completo' | 'kuaizi';
+export type Mode = 'cliente' | 'kuaizi';
 
 export interface DdpInputs {
   cbmTotal: number;

@@ -28,7 +28,7 @@ function check(label: string, actual: number, expected: number): boolean {
 
 function makeBaseInputs(): CalculatorInputs {
   return {
-    mode: 'completo',
+    mode: 'cliente',
     ddp: { cbmTotal: 0, tarifaDdpCopPerCbm: 0 },
     product: {
       description: 'Test product',

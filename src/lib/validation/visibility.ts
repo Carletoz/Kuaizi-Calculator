@@ -54,15 +54,15 @@ export const visibility = {
     return cat?.antidumpingRisk ?? false;
   },
 
-  /** Section C (Freight) — hidden in kuaizi mode */
-  sectionC: (s: CalculatorState): boolean => s.mode === 'completo',
+  /** Section C (Freight) — visible in kuaizi (full operator) mode */
+  sectionC: (s: CalculatorState): boolean => s.mode === 'kuaizi',
 
-  /** Section D (Insurance) — hidden in kuaizi mode */
-  sectionDInsurance: (s: CalculatorState): boolean => s.mode === 'completo',
+  /** Section D (Insurance) — visible in kuaizi (full operator) mode */
+  sectionDInsurance: (s: CalculatorState): boolean => s.mode === 'kuaizi',
 
-  /** Section E (Customs) — hidden in kuaizi mode */
-  sectionECustoms: (s: CalculatorState): boolean => s.mode === 'completo',
+  /** Section E (Customs) — visible in kuaizi (full operator) mode */
+  sectionECustoms: (s: CalculatorState): boolean => s.mode === 'kuaizi',
 
-  /** SectionKuaiziDDP — visible only in kuaizi mode */
-  sectionKuaiziDdp: (s: CalculatorState): boolean => s.mode === 'kuaizi',
+  /** SectionKuaiziDDP — hidden; superseded by full freight sections in kuaizi mode */
+  sectionKuaiziDdp: (_s: CalculatorState): boolean => false,
 };

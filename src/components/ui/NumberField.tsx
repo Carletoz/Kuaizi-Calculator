@@ -59,7 +59,7 @@ export function NumberField({
           </span>
         )}
       </label>
-      <div className="flex items-center rounded-md border border-gray-300 bg-white focus-within:border-kuaizi-accent focus-within:ring-1 focus-within:ring-kuaizi-accent">
+      <div className="flex items-center min-w-0 rounded-md border border-gray-300 bg-white focus-within:border-kuaizi-accent focus-within:ring-1 focus-within:ring-kuaizi-accent">
         {prefix && (
           <span className="px-2 text-sm text-gray-500 border-r border-gray-300 bg-gray-50 rounded-l-md py-2">
             {prefix}

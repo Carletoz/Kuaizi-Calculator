@@ -242,7 +242,7 @@ export function ClienteView() {
   return (
     <div className="space-y-5">
       {/* Product inputs */}
-      <div className="rounded-xl border border-gray-200 bg-white shadow-sm p-5">
+      <div className="rounded-xl border border-gray-200 bg-white shadow-sm p-5 overflow-hidden">
         <h2 className="text-xs font-bold text-kuaizi-secondary uppercase tracking-widest mb-4">
           Datos del producto
         </h2>

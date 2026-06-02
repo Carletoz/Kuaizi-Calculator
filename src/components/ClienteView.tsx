@@ -1,8 +1,6 @@
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useMemo } from 'react';
 import { NumberField } from '@/components/ui/NumberField';
 import { ALL_HS_CATEGORIES, getHSCategory } from '@/data/hs-categories';
-import { ScanButton } from '@/components/scan/ScanButton';
-import type { ScanResult } from '@/lib/scan/openai-vision';
 
 const KUAIZI_MARGIN_RATE = 0.05;
 const INSURANCE_RATE = 0.0035;
@@ -238,20 +236,6 @@ export function ClienteView() {
   const [inp, setInp] = useState<ClienteInputs>(DEFAULT_INPUTS);
   const set = (k: keyof ClienteInputs) => (v: number) => setInp((prev) => ({ ...prev, [k]: v }));
 
-  const handleScanResult = useCallback((result: ScanResult) => {
-    setInp((prev) => {
-      const cat = getHSCategory(result.hsCategoryId);
-      return {
-        ...prev,
-        boxWeightKg: result.weightKg,
-        lengthCm: result.dimensionsCm.l,
-        widthCm: result.dimensionsCm.w,
-        heightCm: result.dimensionsCm.h,
-        ...(cat ? { hsCategoryId: result.hsCategoryId } : {}),
-      };
-    });
-  }, []);
-
   const computed = useMemo(() => {
     const ppc = Math.max(inp.piezasPorCaja, 1);
     const numCajas = inp.desiredQuantity > 0 ? Math.ceil(inp.desiredQuantity / ppc) : 0;
@@ -338,7 +322,6 @@ export function ClienteView() {
           Datos del producto
         </h2>
         <div className="space-y-3">
-          <ScanButton onScanResult={handleScanResult} />
           <div className="grid grid-cols-2 gap-3">
             <NumberField
               label="Precio unitario"

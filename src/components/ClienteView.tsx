@@ -1,10 +1,12 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { NumberField } from '@/components/ui/NumberField';
 import { ALL_HS_CATEGORIES, getHSCategory } from '@/data/hs-categories';
 
 const KUAIZI_MARGIN_RATE = 0.05;
 const INSURANCE_RATE = 0.0035;
 const FALLBACK_IVA_RATE = 0.19;
+
+type DisplayCurrency = 'USD' | 'RMB';
 
 interface ClienteInputs {
   unitPriceUsd: number;
@@ -71,6 +73,10 @@ function fmtUSD(v: number): string {
   return v.toLocaleString('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2 });
 }
 
+function fmtCNY(v: number): string {
+  return v.toLocaleString('zh-CN', { style: 'currency', currency: 'CNY', minimumFractionDigits: 2 });
+}
+
 function fmtCOP(v: number): string {
   return `COP ${Math.round(v).toLocaleString('es-CO')}`;
 }
@@ -95,6 +101,8 @@ interface ResultCardProps {
   bothPresent: boolean;
   isPending: boolean;
   precioVentaCop: number;
+  displayCurrency: DisplayCurrency;
+  cnyRate: number | null;
 }
 
 function ResultCard({
@@ -108,11 +116,25 @@ function ResultCard({
   bothPresent,
   isPending,
   precioVentaCop,
+  displayCurrency,
+  cnyRate,
 }: ResultCardProps) {
   const isAir = mode === 'air';
+  const isRMB = displayCurrency === 'RMB' && cnyRate !== null;
+  const rate = cnyRate ?? 1;
+
+  const fmt = (usdVal: number) => (isRMB ? fmtCNY(usdVal * rate) : fmtUSD(usdVal));
+
+  const mainUnitValue = isRMB ? fmtCNY(result.perUnitUsd * rate) : fmtUSD(result.perUnitUsd);
+
+  const secondaryUnitValue = isRMB
+    ? fmtUSD(result.perUnitUsd)
+    : result.perUnitCop > 0
+      ? fmtCOP(result.perUnitCop)
+      : null;
 
   const rentabilidad =
-    precioVentaCop > 0 && result.perUnitCop > 0
+    !isRMB && precioVentaCop > 0 && result.perUnitCop > 0
       ? ((precioVentaCop - result.perUnitCop) / result.perUnitCop) * 100
       : null;
 
@@ -141,10 +163,10 @@ function ResultCard({
       </div>
 
       <div className="p-4 space-y-1.5">
-        <ResultRow label="Precio EXW/FOB" value={fmtUSD(exwUsd)} />
+        <ResultRow label="Precio EXW/FOB" value={fmt(exwUsd)} />
         <ResultRow
           label={`Margen Kuaizi (${Math.round(KUAIZI_MARGIN_RATE * 100)}%)`}
-          value={fmtUSD(kuaiziMarginUsd)}
+          value={fmt(kuaiziMarginUsd)}
         />
 
         {isPending ? (
@@ -153,15 +175,15 @@ function ResultCard({
           </p>
         ) : (
           <>
-            <ResultRow label="Costo de envío" value={fmtUSD(result.freightUsd)} />
-            <ResultRow label="Seguro (0.35%)" value={fmtUSD(result.insuranceUsd)} />
+            <ResultRow label="Costo de envío" value={fmt(result.freightUsd)} />
+            <ResultRow label="Seguro (0.35%)" value={fmt(result.insuranceUsd)} />
 
             <div className="border-t border-gray-100 pt-1.5">
-              <ResultRow label="CIF" value={fmtUSD(result.cifUsd)} bold />
+              <ResultRow label="CIF" value={fmt(result.cifUsd)} bold />
             </div>
 
-            <ResultRow label={`Arancel (${arancelPct}%)`} value={fmtUSD(result.arancelUsd)} />
-            <ResultRow label={`IVA (${ivaPct}%)`} value={fmtUSD(result.ivaUsd)} />
+            <ResultRow label={`Arancel (${arancelPct}%)`} value={fmt(result.arancelUsd)} />
+            <ResultRow label={`IVA (${ivaPct}%)`} value={fmt(result.ivaUsd)} />
 
             <div className="border-t border-gray-200 pt-3 mt-1">
               <div className="flex items-start justify-between gap-2">
@@ -174,10 +196,10 @@ function ResultCard({
                       isAir ? 'text-amber-600' : 'text-emerald-600'
                     }`}
                   >
-                    {fmtUSD(result.perUnitUsd)}
+                    {mainUnitValue}
                   </div>
-                  {result.perUnitCop > 0 && (
-                    <div className="text-xs text-gray-400 mt-0.5">{fmtCOP(result.perUnitCop)}</div>
+                  {secondaryUnitValue && (
+                    <div className="text-xs text-gray-400 mt-0.5">{secondaryUnitValue}</div>
                   )}
                 </div>
               </div>
@@ -236,6 +258,40 @@ export function ClienteView() {
   const [inp, setInp] = useState<ClienteInputs>(DEFAULT_INPUTS);
   const set = (k: keyof ClienteInputs) => (v: number) => setInp((prev) => ({ ...prev, [k]: v }));
 
+  const [displayCurrency, setDisplayCurrency] = useState<DisplayCurrency>('USD');
+  const [cnyRate, setCnyRate] = useState<number | null>(null);
+  const [trmLoading, setTrmLoading] = useState(false);
+
+  useEffect(() => {
+    const ctrl = new AbortController();
+    const { signal } = ctrl;
+
+    setTrmLoading(true);
+    fetch('https://co.dolarapi.com/v1/cotizaciones/usd', { signal })
+      .then((r) => r.json())
+      .then((data) => {
+        const rate = data.venta ?? data.promedio ?? data.compra;
+        if (typeof rate === 'number' && rate > 0) {
+          setInp((prev) => ({ ...prev, trm: Math.round(rate) }));
+        }
+      })
+      .catch(() => {})
+      .finally(() => {
+        if (!signal.aborted) setTrmLoading(false);
+      });
+
+    fetch('https://open.er-api.com/v6/latest/USD', { signal })
+      .then((r) => r.json())
+      .then((data) => {
+        if (typeof data.rates?.CNY === 'number') {
+          setCnyRate(data.rates.CNY as number);
+        }
+      })
+      .catch(() => {});
+
+    return () => ctrl.abort();
+  }, []);
+
   const computed = useMemo(() => {
     const ppc = Math.max(inp.piezasPorCaja, 1);
     const numCajas = inp.desiredQuantity > 0 ? Math.ceil(inp.desiredQuantity / ppc) : 0;
@@ -254,8 +310,7 @@ export function ClienteView() {
     const arancelPct = Math.round(arancelRate * 100);
     const ivaPct = Math.round(ivaRate * 100);
 
-    const canCalc =
-      inp.piezasPorCaja > 0 && realQuantity > 0 && inp.unitPriceUsd > 0;
+    const canCalc = inp.piezasPorCaja > 0 && realQuantity > 0 && inp.unitPriceUsd > 0;
 
     const exwTotal = inp.unitPriceUsd * realQuantity;
     const kuaiziMarginUsd = exwTotal * KUAIZI_MARGIN_RATE;
@@ -431,14 +486,19 @@ export function ClienteView() {
               </p>
             )}
           </div>
-          <NumberField
-            label="TRM"
-            value={inp.trm}
-            onChange={set('trm')}
-            suffix="COP"
-            step={1}
-            min={0}
-          />
+          <div className="flex flex-col gap-1">
+            <NumberField
+              label="TRM"
+              value={inp.trm}
+              onChange={set('trm')}
+              suffix="COP"
+              step={1}
+              min={0}
+            />
+            <p className="text-xs text-gray-400">
+              {trmLoading ? '• Actualizando...' : '• En vivo · editable'}
+            </p>
+          </div>
         </div>
       </div>
 
@@ -485,8 +545,47 @@ export function ClienteView() {
         </div>
       </div>
 
-      {/* Rentabilidad module */}
+      {/* Currency display toggle — shown once results are ready */}
       {showResults && (
+        <div className="rounded-xl border border-gray-200 bg-white shadow-sm p-4 flex items-center justify-between gap-4">
+          <div>
+            <p className="text-sm font-semibold text-kuaizi-ink">Ver resultados en</p>
+            {displayCurrency === 'RMB' && cnyRate !== null && (
+              <p className="text-xs text-gray-400 mt-0.5">1 USD = ¥{cnyRate.toFixed(4)} CNY</p>
+            )}
+            {displayCurrency === 'RMB' && cnyRate === null && (
+              <p className="text-xs text-orange-400 mt-0.5">Tipo de cambio CNY no disponible</p>
+            )}
+          </div>
+          <div className="flex items-center rounded-full bg-gray-100 border border-gray-200 p-0.5 gap-0.5">
+            <button
+              type="button"
+              onClick={() => setDisplayCurrency('USD')}
+              className={`px-4 py-1.5 rounded-full text-sm font-semibold transition-colors focus:outline-none focus:ring-2 focus:ring-kuaizi-secondary/30 ${
+                displayCurrency === 'USD'
+                  ? 'bg-kuaizi-secondary text-white shadow-sm'
+                  : 'text-gray-500 hover:text-kuaizi-secondary'
+              }`}
+            >
+              $ USD
+            </button>
+            <button
+              type="button"
+              onClick={() => setDisplayCurrency('RMB')}
+              className={`px-4 py-1.5 rounded-full text-sm font-semibold transition-colors focus:outline-none focus:ring-2 focus:ring-kuaizi-secondary/30 ${
+                displayCurrency === 'RMB'
+                  ? 'bg-kuaizi-secondary text-white shadow-sm'
+                  : 'text-gray-500 hover:text-kuaizi-secondary'
+              }`}
+            >
+              ¥ RMB
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Rentabilidad module — USD only (COP-specific) */}
+      {showResults && displayCurrency === 'USD' && (
         <div className="rounded-xl border border-gray-200 bg-white shadow-sm p-5">
           <h2 className="text-xs font-bold text-kuaizi-secondary uppercase tracking-widest mb-1">
             Rentabilidad
@@ -520,6 +619,8 @@ export function ClienteView() {
               bothPresent={bothComplete}
               isPending={airPending}
               precioVentaCop={inp.precioVentaCop}
+              displayCurrency={displayCurrency}
+              cnyRate={cnyRate}
             />
           )}
           {sea !== null && (
@@ -534,6 +635,8 @@ export function ClienteView() {
               bothPresent={bothComplete}
               isPending={seaPending}
               precioVentaCop={inp.precioVentaCop}
+              displayCurrency={displayCurrency}
+              cnyRate={cnyRate}
             />
           )}
         </div>

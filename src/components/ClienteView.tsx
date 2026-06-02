@@ -4,13 +4,15 @@ import { ALL_HS_CATEGORIES, getHSCategory } from '@/data/hs-categories';
 import { ScanButton } from '@/components/scan/ScanButton';
 import type { ScanResult } from '@/lib/scan/openai-vision';
 
-const FALLBACK_IVA_RATE = 0.19;
+const KUAIZI_MARGIN_RATE = 0.05;
 const INSURANCE_RATE = 0.0035;
+const FALLBACK_IVA_RATE = 0.19;
 
 interface ClienteInputs {
   unitPriceUsd: number;
-  quantity: number;
-  unitWeightKg: number;
+  desiredQuantity: number;
+  piezasPorCaja: number;
+  boxWeightKg: number;
   lengthCm: number;
   widthCm: number;
   heightCm: number;
@@ -18,12 +20,15 @@ interface ClienteInputs {
   seaCostPerCbmUsd: number;
   hsCategoryId: string;
   trm: number;
+  precioVentaCop: number;
 }
 
 interface ModeResult {
   freightUsd: number;
   insuranceUsd: number;
   cifUsd: number;
+  arancelUsd: number;
+  ivaUsd: number;
   impuestosUsd: number;
   totalUsd: number;
   perUnitUsd: number;
@@ -32,8 +37,9 @@ interface ModeResult {
 
 const DEFAULT_INPUTS: ClienteInputs = {
   unitPriceUsd: 0,
-  quantity: 0,
-  unitWeightKg: 0,
+  desiredQuantity: 0,
+  piezasPorCaja: 0,
+  boxWeightKg: 0,
   lengthCm: 0,
   widthCm: 0,
   heightCm: 0,
@@ -41,53 +47,77 @@ const DEFAULT_INPUTS: ClienteInputs = {
   seaCostPerCbmUsd: 0,
   hsCategoryId: '',
   trm: 4200,
+  precioVentaCop: 0,
 };
 
 function calcMode(
-  exwTotal: number,
+  exwWithMarginUsd: number,
   freightUsd: number,
   arancelRate: number,
   ivaRate: number,
   trm: number,
-  quantity: number
+  realQuantity: number
 ): ModeResult {
-  const insuranceUsd = (exwTotal + freightUsd) * INSURANCE_RATE;
-  const cifUsd = exwTotal + freightUsd + insuranceUsd;
+  const insuranceUsd = (exwWithMarginUsd + freightUsd) * INSURANCE_RATE;
+  const cifUsd = exwWithMarginUsd + freightUsd + insuranceUsd;
   const arancelUsd = cifUsd * arancelRate;
   const ivaUsd = (cifUsd + arancelUsd) * ivaRate;
   const impuestosUsd = arancelUsd + ivaUsd;
   const totalUsd = cifUsd + impuestosUsd;
-  const perUnitUsd = totalUsd / quantity;
+  const perUnitUsd = realQuantity > 0 ? totalUsd / realQuantity : 0;
   const perUnitCop = trm > 0 ? perUnitUsd * trm : 0;
-  return { freightUsd, insuranceUsd, cifUsd, impuestosUsd, totalUsd, perUnitUsd, perUnitCop };
+  return { freightUsd, insuranceUsd, cifUsd, arancelUsd, ivaUsd, impuestosUsd, totalUsd, perUnitUsd, perUnitCop };
 }
 
 function fmtUSD(v: number): string {
-  return v.toLocaleString('es-CO', { style: 'currency', currency: 'USD', minimumFractionDigits: 2 });
+  return v.toLocaleString('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2 });
 }
 
 function fmtCOP(v: number): string {
-  return v.toLocaleString('es-CO', {
-    style: 'currency',
-    currency: 'COP',
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 0,
-  });
+  return `COP ${Math.round(v).toLocaleString('es-CO')}`;
+}
+
+function ResultRow({ label, value, bold = false }: { label: string; value: string; bold?: boolean }) {
+  return (
+    <div className={`flex justify-between items-start gap-2 text-sm ${bold ? 'font-semibold' : ''}`}>
+      <span className="text-gray-500 leading-tight">{label}</span>
+      <span className="text-kuaizi-ink shrink-0">{value}</span>
+    </div>
+  );
 }
 
 interface ResultCardProps {
   mode: 'air' | 'sea';
   result: ModeResult;
   exwUsd: number;
+  kuaiziMarginUsd: number;
   arancelPct: number;
   ivaPct: number;
   isCheaper: boolean;
   bothPresent: boolean;
   isPending: boolean;
+  precioVentaCop: number;
 }
 
-function ResultCard({ mode, result, exwUsd, arancelPct, ivaPct, isCheaper, bothPresent, isPending }: ResultCardProps) {
+function ResultCard({
+  mode,
+  result,
+  exwUsd,
+  kuaiziMarginUsd,
+  arancelPct,
+  ivaPct,
+  isCheaper,
+  bothPresent,
+  isPending,
+  precioVentaCop,
+}: ResultCardProps) {
   const isAir = mode === 'air';
+
+  const rentabilidad =
+    precioVentaCop > 0 && result.perUnitCop > 0
+      ? ((precioVentaCop - result.perUnitCop) / result.perUnitCop) * 100
+      : null;
+
   return (
     <div
       className={`rounded-xl border-2 bg-white shadow-sm overflow-hidden ${
@@ -113,7 +143,11 @@ function ResultCard({ mode, result, exwUsd, arancelPct, ivaPct, isCheaper, bothP
       </div>
 
       <div className="p-4 space-y-1.5">
-        <ResultRow label="Precio EXW" value={fmtUSD(exwUsd)} />
+        <ResultRow label="Precio EXW/FOB" value={fmtUSD(exwUsd)} />
+        <ResultRow
+          label={`Margen Kuaizi (${Math.round(KUAIZI_MARGIN_RATE * 100)}%)`}
+          value={fmtUSD(kuaiziMarginUsd)}
+        />
 
         {isPending ? (
           <p className="text-xs text-gray-400 italic py-2">
@@ -128,10 +162,8 @@ function ResultCard({ mode, result, exwUsd, arancelPct, ivaPct, isCheaper, bothP
               <ResultRow label="CIF" value={fmtUSD(result.cifUsd)} bold />
             </div>
 
-            <ResultRow
-              label={`Impuestos (arancel ${arancelPct}% + IVA ${ivaPct}%)`}
-              value={fmtUSD(result.impuestosUsd)}
-            />
+            <ResultRow label={`Arancel (${arancelPct}%)`} value={fmtUSD(result.arancelUsd)} />
+            <ResultRow label={`IVA (${ivaPct}%)`} value={fmtUSD(result.ivaUsd)} />
 
             <div className="border-t border-gray-200 pt-3 mt-1">
               <div className="flex items-start justify-between gap-2">
@@ -140,7 +172,9 @@ function ResultCard({ mode, result, exwUsd, arancelPct, ivaPct, isCheaper, bothP
                 </span>
                 <div className="text-right">
                   <div
-                    className={`text-2xl font-bold ${isAir ? 'text-amber-600' : 'text-emerald-600'}`}
+                    className={`text-2xl font-bold ${
+                      isAir ? 'text-amber-600' : 'text-emerald-600'
+                    }`}
                   >
                     {fmtUSD(result.perUnitUsd)}
                   </div>
@@ -150,6 +184,32 @@ function ResultCard({ mode, result, exwUsd, arancelPct, ivaPct, isCheaper, bothP
                 </div>
               </div>
             </div>
+
+            {rentabilidad !== null && (
+              <div
+                className={`rounded-lg px-3 py-2 mt-2 flex justify-between items-center ${
+                  rentabilidad >= 0
+                    ? 'bg-emerald-50 border border-emerald-200'
+                    : 'bg-red-50 border border-red-200'
+                }`}
+              >
+                <span
+                  className={`text-xs font-semibold ${
+                    rentabilidad >= 0 ? 'text-emerald-700' : 'text-red-600'
+                  }`}
+                >
+                  Rentabilidad
+                </span>
+                <span
+                  className={`text-sm font-bold ${
+                    rentabilidad >= 0 ? 'text-emerald-700' : 'text-red-600'
+                  }`}
+                >
+                  {rentabilidad >= 0 ? '+' : ''}
+                  {rentabilidad.toFixed(2)}%
+                </span>
+              </div>
+            )}
           </>
         )}
 
@@ -159,12 +219,12 @@ function ResultCard({ mode, result, exwUsd, arancelPct, ivaPct, isCheaper, bothP
               <span className="text-xs font-bold uppercase tracking-wide text-gray-400 mt-1.5">
                 Total / unidad
               </span>
-              <div className="text-right">
-                <div
-                  className={`text-2xl font-bold ${isAir ? 'text-amber-300' : 'text-emerald-300'}`}
-                >
-                  —
-                </div>
+              <div
+                className={`text-2xl font-bold ${
+                  isAir ? 'text-amber-300' : 'text-emerald-300'
+                }`}
+              >
+                —
               </div>
             </div>
           </div>
@@ -174,34 +234,16 @@ function ResultCard({ mode, result, exwUsd, arancelPct, ivaPct, isCheaper, bothP
   );
 }
 
-function ResultRow({
-  label,
-  value,
-  bold = false,
-}: {
-  label: string;
-  value: string;
-  bold?: boolean;
-}) {
-  return (
-    <div className={`flex justify-between items-start gap-2 text-sm ${bold ? 'font-semibold' : ''}`}>
-      <span className="text-gray-500 leading-tight">{label}</span>
-      <span className="text-kuaizi-ink shrink-0">{value}</span>
-    </div>
-  );
-}
-
 export function ClienteView() {
   const [inp, setInp] = useState<ClienteInputs>(DEFAULT_INPUTS);
   const set = (k: keyof ClienteInputs) => (v: number) => setInp((prev) => ({ ...prev, [k]: v }));
-  const setStr = (k: keyof ClienteInputs) => (v: string) => setInp((prev) => ({ ...prev, [k]: v }));
 
   const handleScanResult = useCallback((result: ScanResult) => {
-    setInp(prev => {
+    setInp((prev) => {
       const cat = getHSCategory(result.hsCategoryId);
       return {
         ...prev,
-        unitWeightKg: result.weightKg,
+        boxWeightKg: result.weightKg,
         lengthCm: result.dimensionsCm.l,
         widthCm: result.dimensionsCm.w,
         heightCm: result.dimensionsCm.h,
@@ -210,11 +252,17 @@ export function ClienteView() {
     });
   }, []);
 
-  const { air, sea, volWeightKg, chargeableKg, cbm, arancelPct, ivaPct, airPending, seaPending } = useMemo(() => {
-    const cbmPerUnit = (inp.lengthCm * inp.widthCm * inp.heightCm) / 1_000_000;
-    const volWeightKgPerUnit = (inp.lengthCm * inp.widthCm * inp.heightCm) / 6000;
-    const chargeableKg = Math.max(inp.unitWeightKg, volWeightKgPerUnit);
-    const totalCbm = cbmPerUnit * Math.max(inp.quantity, 1);
+  const computed = useMemo(() => {
+    const ppc = Math.max(inp.piezasPorCaja, 1);
+    const numCajas = inp.desiredQuantity > 0 ? Math.ceil(inp.desiredQuantity / ppc) : 0;
+    const realQuantity = numCajas * ppc;
+
+    const cbmPerCaja = (inp.lengthCm * inp.widthCm * inp.heightCm) / 1_000_000;
+    const volWeightKgPerCaja = (inp.lengthCm * inp.widthCm * inp.heightCm) / 6_000;
+    const totalCbm = cbmPerCaja * numCajas;
+    const totalKg = inp.boxWeightKg * numCajas;
+    const chargeableKgPerCaja = Math.max(inp.boxWeightKg, volWeightKgPerCaja);
+    const totalChargeableKg = chargeableKgPerCaja * numCajas;
 
     const cat = getHSCategory(inp.hsCategoryId);
     const arancelRate = cat ? cat.arancelRate : 0;
@@ -222,42 +270,69 @@ export function ClienteView() {
     const arancelPct = Math.round(arancelRate * 100);
     const ivaPct = Math.round(ivaRate * 100);
 
-    const exwTotal = inp.unitPriceUsd * inp.quantity;
-    const canCalc = inp.quantity > 0 && inp.unitPriceUsd > 0;
+    const canCalc =
+      inp.piezasPorCaja > 0 && realQuantity > 0 && inp.unitPriceUsd > 0;
 
-    const airFreight = chargeableKg * inp.quantity * inp.airCostPerKgUsd;
+    const exwTotal = inp.unitPriceUsd * realQuantity;
+    const kuaiziMarginUsd = exwTotal * KUAIZI_MARGIN_RATE;
+    const exwWithMargin = exwTotal + kuaiziMarginUsd;
+
+    const airFreight = totalChargeableKg * inp.airCostPerKgUsd;
     const seaFreight = totalCbm * inp.seaCostPerCbmUsd;
 
     const airPending = inp.airCostPerKgUsd === 0;
     const seaPending = inp.seaCostPerCbmUsd === 0;
 
     return {
-      air: canCalc ? calcMode(exwTotal, airFreight, arancelRate, ivaRate, inp.trm, inp.quantity) : null,
-      sea: canCalc ? calcMode(exwTotal, seaFreight, arancelRate, ivaRate, inp.trm, inp.quantity) : null,
-      volWeightKg: volWeightKgPerUnit,
-      chargeableKg,
-      cbm: totalCbm,
+      numCajas,
+      realQuantity,
+      totalCbm,
+      totalKg,
+      totalChargeableKg,
       arancelPct,
       ivaPct,
+      canCalc,
+      exwTotal,
+      kuaiziMarginUsd,
       airPending,
       seaPending,
+      air: canCalc
+        ? calcMode(exwWithMargin, airFreight, arancelRate, ivaRate, inp.trm, realQuantity)
+        : null,
+      sea: canCalc
+        ? calcMode(exwWithMargin, seaFreight, arancelRate, ivaRate, inp.trm, realQuantity)
+        : null,
     };
   }, [inp]);
+
+  const {
+    numCajas,
+    realQuantity,
+    totalCbm,
+    totalKg,
+    totalChargeableKg,
+    arancelPct,
+    ivaPct,
+    canCalc,
+    exwTotal,
+    kuaiziMarginUsd,
+    airPending,
+    seaPending,
+    air,
+    sea,
+  } = computed;
 
   const bothComplete = !airPending && !seaPending;
   const cheaperIs: 'air' | 'sea' | null =
     air && sea && bothComplete ? (air.perUnitUsd <= sea.perUnitUsd ? 'air' : 'sea') : null;
 
-  const showDims =
-    inp.lengthCm > 0 || inp.widthCm > 0 || inp.heightCm > 0 || inp.unitWeightKg > 0;
-
-  const exwUsd = inp.unitPriceUsd * inp.quantity;
-
   const selectedCategory = getHSCategory(inp.hsCategoryId) ?? null;
+  const showBoxSummary = numCajas > 0;
+  const showResults = canCalc;
 
   return (
     <div className="space-y-5">
-      {/* Product inputs */}
+      {/* Section: Product */}
       <div className="rounded-xl border border-gray-200 bg-white shadow-sm p-5 overflow-hidden">
         <h2 className="text-xs font-bold text-kuaizi-secondary uppercase tracking-widest mb-4">
           Datos del producto
@@ -275,27 +350,45 @@ export function ClienteView() {
               min={0}
             />
             <NumberField
-              label="Cantidad"
-              value={inp.quantity}
-              onChange={set('quantity')}
+              label="Unidades deseadas"
+              value={inp.desiredQuantity}
+              onChange={set('desiredQuantity')}
               suffix="uds"
               step={1}
               min={1}
             />
           </div>
+        </div>
+      </div>
 
-          <NumberField
-            label="Peso por unidad"
-            value={inp.unitWeightKg}
-            onChange={set('unitWeightKg')}
-            suffix="kg"
-            step={0.01}
-            min={0}
-          />
-
+      {/* Section: Box specs (from supplier) */}
+      <div className="rounded-xl border border-gray-200 bg-white shadow-sm p-5 overflow-hidden">
+        <h2 className="text-xs font-bold text-kuaizi-secondary uppercase tracking-widest mb-1">
+          Datos de la caja
+        </h2>
+        <p className="text-xs text-gray-400 mb-4">Información entregada por el proveedor</p>
+        <div className="space-y-3">
+          <div className="grid grid-cols-2 gap-3">
+            <NumberField
+              label="Piezas por caja"
+              value={inp.piezasPorCaja}
+              onChange={set('piezasPorCaja')}
+              suffix="uds"
+              step={1}
+              min={1}
+            />
+            <NumberField
+              label="Peso por caja"
+              value={inp.boxWeightKg}
+              onChange={set('boxWeightKg')}
+              suffix="kg"
+              step={0.1}
+              min={0}
+            />
+          </div>
           <div>
             <label className="text-sm font-medium text-kuaizi-ink block mb-1">
-              Dimensiones por unidad{' '}
+              Dimensiones de la caja{' '}
               <span className="text-xs font-normal text-gray-400">(cm)</span>
             </label>
             <div className="grid grid-cols-3 gap-2">
@@ -304,88 +397,17 @@ export function ClienteView() {
               <NumberField label="Alto" value={inp.heightCm} onChange={set('heightCm')} min={0} />
             </div>
           </div>
-
-          <div className="grid grid-cols-2 gap-3">
-            <div className="flex flex-col gap-1 min-w-0">
-              <label className="text-sm font-medium text-kuaizi-ink">
-                Categoría de producto
-              </label>
-              <select
-                value={inp.hsCategoryId}
-                onChange={(e) => setStr('hsCategoryId')(e.target.value)}
-                className="rounded-md border border-gray-300 bg-white text-sm text-kuaizi-ink px-3 py-2 focus:outline-none focus:border-kuaizi-accent focus:ring-1 focus:ring-kuaizi-accent"
-              >
-                <option value="">— Seleccioná una categoría —</option>
-                {ALL_HS_CATEGORIES.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.label}
-                  </option>
-                ))}
-              </select>
-              {selectedCategory && (
-                <p className="text-xs text-gray-400 mt-0.5">
-                  Arancel: {arancelPct}% · IVA: {ivaPct}%
-                </p>
-              )}
-            </div>
-            <NumberField
-              label="TRM"
-              value={inp.trm}
-              onChange={set('trm')}
-              suffix="COP"
-              step={1}
-              min={0}
-            />
-          </div>
         </div>
       </div>
 
-      {/* Freight rate inputs */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        {/* Avión */}
-        <div className="rounded-xl border-2 border-amber-300 bg-white shadow-sm p-4">
-          <div className="flex items-center gap-2 mb-3">
-            <span className="text-xl">✈️</span>
-            <span className="font-bold text-amber-700">Avión</span>
-          </div>
-          <div className="space-y-3">
-            <NumberField
-              label="Costo por kg"
-              value={inp.airCostPerKgUsd}
-              onChange={set('airCostPerKgUsd')}
-              prefix="$"
-              hint="USD/kg"
-              step={0.01}
-              min={0}
-            />
-          </div>
-        </div>
-
-        {/* Barco */}
-        <div className="rounded-xl border-2 border-emerald-300 bg-white shadow-sm p-4">
-          <div className="flex items-center gap-2 mb-3">
-            <span className="text-xl">🚢</span>
-            <span className="font-bold text-emerald-700">Barco</span>
-          </div>
-          <NumberField
-            label="Costo por CBM"
-            value={inp.seaCostPerCbmUsd}
-            onChange={set('seaCostPerCbmUsd')}
-            prefix="$"
-            hint="USD/CBM"
-            step={1}
-            min={0}
-          />
-        </div>
-      </div>
-
-      {/* Computed dimensions info */}
-      {showDims && (
-        <div className="grid grid-cols-3 gap-2">
+      {/* Auto-calculated box summary */}
+      {showBoxSummary && (
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
           {[
-            { label: 'Peso volumétrico', value: `${volWeightKg.toFixed(3)} kg` },
-            { label: 'Peso tomado', value: `${chargeableKg.toFixed(3)} kg` },
-            { label: 'Volumen (CBM)', value: `${cbm.toFixed(4)} m³` },
+            { label: '# Cajas', value: `${numCajas}` },
+            { label: 'Cantidad real', value: `${realQuantity} uds` },
+            { label: 'CBM total', value: `${totalCbm.toFixed(4)} m³` },
+            { label: 'KG total', value: `${totalKg.toFixed(1)} kg` },
           ].map(({ label, value }) => (
             <div
               key={label}
@@ -400,31 +422,135 @@ export function ClienteView() {
         </div>
       )}
 
-      {/* Result comparison cards */}
-      {(air !== null || sea !== null) && (
+      {/* Section: Category + TRM */}
+      <div className="rounded-xl border border-gray-200 bg-white shadow-sm p-5 overflow-hidden">
+        <h2 className="text-xs font-bold text-kuaizi-secondary uppercase tracking-widest mb-4">
+          Impuestos y cambio
+        </h2>
+        <div className="grid grid-cols-2 gap-3">
+          <div className="flex flex-col gap-1 min-w-0">
+            <label className="text-sm font-medium text-kuaizi-ink">Categoría de producto</label>
+            <select
+              value={inp.hsCategoryId}
+              onChange={(e) => setInp((prev) => ({ ...prev, hsCategoryId: e.target.value }))}
+              className="rounded-md border border-gray-300 bg-white text-sm text-kuaizi-ink px-3 py-2 focus:outline-none focus:border-kuaizi-accent focus:ring-1 focus:ring-kuaizi-accent"
+            >
+              <option value="">— Seleccioná una categoría —</option>
+              {ALL_HS_CATEGORIES.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.label}
+                </option>
+              ))}
+            </select>
+            {selectedCategory && (
+              <p className="text-xs text-gray-400 mt-0.5">
+                Arancel: {arancelPct}% · IVA: {ivaPct}%
+              </p>
+            )}
+          </div>
+          <NumberField
+            label="TRM"
+            value={inp.trm}
+            onChange={set('trm')}
+            suffix="COP"
+            step={1}
+            min={0}
+          />
+        </div>
+      </div>
+
+      {/* Section: Freight rates */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div className="rounded-xl border-2 border-amber-300 bg-white shadow-sm p-4">
+          <div className="flex items-center gap-2 mb-3">
+            <span className="text-xl">✈️</span>
+            <span className="font-bold text-amber-700">Avión</span>
+          </div>
+          <NumberField
+            label="Costo por kg"
+            value={inp.airCostPerKgUsd}
+            onChange={set('airCostPerKgUsd')}
+            prefix="$"
+            hint="USD/kg"
+            step={0.01}
+            min={0}
+          />
+          {totalChargeableKg > 0 && (
+            <p className="text-xs text-gray-400 mt-2">
+              Peso facturable: {totalChargeableKg.toFixed(2)} kg
+            </p>
+          )}
+        </div>
+
+        <div className="rounded-xl border-2 border-emerald-300 bg-white shadow-sm p-4">
+          <div className="flex items-center gap-2 mb-3">
+            <span className="text-xl">🚢</span>
+            <span className="font-bold text-emerald-700">Barco</span>
+          </div>
+          <NumberField
+            label="Costo por CBM"
+            value={inp.seaCostPerCbmUsd}
+            onChange={set('seaCostPerCbmUsd')}
+            prefix="$"
+            hint="USD/CBM"
+            step={1}
+            min={0}
+          />
+          {totalCbm > 0 && (
+            <p className="text-xs text-gray-400 mt-2">Volumen: {totalCbm.toFixed(4)} m³</p>
+          )}
+        </div>
+      </div>
+
+      {/* Rentabilidad module */}
+      {showResults && (
+        <div className="rounded-xl border border-gray-200 bg-white shadow-sm p-5">
+          <h2 className="text-xs font-bold text-kuaizi-secondary uppercase tracking-widest mb-1">
+            Rentabilidad
+          </h2>
+          <p className="text-xs text-gray-400 mb-4">
+            ¿A cuánto lo vendes en Colombia? Calculamos tu margen automáticamente.
+          </p>
+          <NumberField
+            label="Precio de venta Colombia"
+            value={inp.precioVentaCop}
+            onChange={set('precioVentaCop')}
+            suffix="COP / unidad"
+            step={100}
+            min={0}
+          />
+        </div>
+      )}
+
+      {/* Results */}
+      {showResults && (air !== null || sea !== null) && (
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           {air !== null && (
             <ResultCard
               mode="air"
               result={air}
-              exwUsd={exwUsd}
+              exwUsd={exwTotal}
+              kuaiziMarginUsd={kuaiziMarginUsd}
               arancelPct={arancelPct}
               ivaPct={ivaPct}
               isCheaper={cheaperIs === 'air'}
               bothPresent={bothComplete}
               isPending={airPending}
+              precioVentaCop={inp.precioVentaCop}
             />
           )}
           {sea !== null && (
             <ResultCard
               mode="sea"
               result={sea}
-              exwUsd={exwUsd}
+              exwUsd={exwTotal}
+              kuaiziMarginUsd={kuaiziMarginUsd}
               arancelPct={arancelPct}
               ivaPct={ivaPct}
               isCheaper={cheaperIs === 'sea'}
               bothPresent={bothComplete}
               isPending={seaPending}
+              precioVentaCop={inp.precioVentaCop}
             />
           )}
         </div>

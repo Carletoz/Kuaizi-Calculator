@@ -7,6 +7,9 @@ declare module '*.svg' {
 
 interface ImportMetaEnv {
   readonly VITE_OPENAI_API_KEY: string;
+  readonly VITE_N8N_SUPPLIER_WEBHOOK_URL: string;
+  readonly VITE_N8N_PRODUCT_WEBHOOK_URL: string;
+  readonly VITE_N8N_SHARE_WEBHOOK_URL: string;
 }
 
 interface ImportMeta {

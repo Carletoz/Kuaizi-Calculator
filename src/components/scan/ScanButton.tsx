@@ -6,30 +6,27 @@ interface ScanButtonProps {
 }
 
 export function ScanButton({ onScanResult }: ScanButtonProps) {
-  const { status, error, fileInputRef, trigger, handleFile } = useProductScan(onScanResult);
+  const { status, error, handleFile } = useProductScan(onScanResult);
   const isScanning = status === 'scanning';
 
   return (
     <div className="mb-2">
-      <input
-        ref={fileInputRef}
-        type="file"
-        accept="image/*"
-        className="hidden"
-        onChange={(e) => {
-          const file = e.target.files?.[0];
-          if (file) void handleFile(file);
-          e.target.value = '';
-        }}
-      />
-      <button
-        type="button"
-        onClick={trigger}
-        disabled={isScanning}
-        className="w-full flex items-center justify-center gap-2 rounded-md border-2 border-dashed border-kuaizi-accent/60 py-3 text-sm font-medium text-kuaizi-accent hover:bg-kuaizi-accent/5 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+      <label
+        className={`w-full flex items-center justify-center gap-2 rounded-md border-2 border-dashed border-kuaizi-accent/60 py-3 text-sm font-medium text-kuaizi-accent hover:bg-kuaizi-accent/5 transition-colors cursor-pointer ${isScanning ? 'opacity-50 pointer-events-none' : ''}`}
       >
+        <input
+          type="file"
+          accept="image/*"
+          className="sr-only"
+          disabled={isScanning}
+          onChange={(e) => {
+            const file = e.target.files?.[0];
+            if (file) void handleFile(file);
+            e.target.value = '';
+          }}
+        />
         {isScanning ? 'Analizando imagen...' : 'Escanear producto con cámara'}
-      </button>
+      </label>
       {status === 'success' && (
         <p className="mt-2 text-xs text-green-600 font-medium">
           Producto detectado — revisá los campos completados abajo

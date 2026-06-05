@@ -1,4 +1,4 @@
-import { useRef, useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { useProductScan } from '@/hooks/useScan';
 import { useSession } from '@/state/session/SessionProvider';
 import { NumberField } from '@/components/ui/NumberField';
@@ -37,7 +37,7 @@ const DEFAULT_FORM: ProductFormState = {
 export function ProductStep() {
   const { state, dispatch, setEntityFile } = useSession();
   const scan = useProductScan();
-  const fileInputRef = useRef<HTMLInputElement>(null);
+
 
   const [form, setForm] = useState<ProductFormState>(DEFAULT_FORM);
   const [scannedFile, setScannedFile] = useState<File | undefined>();
@@ -181,20 +181,16 @@ export function ProductStep() {
       </div>
 
       {/* Scan trigger */}
-      <input
-        ref={fileInputRef}
-        type="file"
-        accept="image/*"
-        capture="environment"
-        className="sr-only"
-        onChange={handleFile}
-      />
-      <button
-        type="button"
-        onClick={() => fileInputRef.current?.click()}
-        disabled={scan.status === 'scanning'}
-        className="w-full rounded-xl border-2 border-dashed border-kuaizi-secondary/40 bg-kuaizi-secondary/5 py-6 text-sm font-semibold text-kuaizi-secondary hover:bg-kuaizi-secondary/10 transition-colors disabled:opacity-50"
+      <label
+        className={`w-full rounded-xl border-2 border-dashed border-kuaizi-secondary/40 bg-kuaizi-secondary/5 py-6 text-sm font-semibold text-kuaizi-secondary hover:bg-kuaizi-secondary/10 transition-colors flex items-center justify-center cursor-pointer ${scan.status === 'scanning' ? 'opacity-50 pointer-events-none' : ''}`}
       >
+        <input
+          type="file"
+          accept="image/*"
+          className="sr-only"
+          disabled={scan.status === 'scanning'}
+          onChange={handleFile}
+        />
         {scan.status === 'scanning' ? (
           <span className="flex items-center justify-center gap-2">
             <span className="animate-spin inline-block w-4 h-4 border-2 border-kuaizi-secondary border-t-transparent rounded-full" />
@@ -203,7 +199,7 @@ export function ProductStep() {
         ) : (
           'Escanear etiqueta de precio'
         )}
-      </button>
+      </label>
 
       {/* Error state */}
       {scan.status === 'error' && (

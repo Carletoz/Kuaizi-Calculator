@@ -52,6 +52,8 @@ export function ReviewStep() {
           name: p.name,
           quantity: p.quantity,
           unitPriceRmb: p.unitPriceRmb,
+          piezasPorCaja: p.piezasPorCaja,
+          cbm: p.cbm,
           arancelRate: p.arancelRate,
           ivaRate: p.ivaRate,
           ...calc,

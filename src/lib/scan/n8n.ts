@@ -71,6 +71,8 @@ export interface QuoteProductItem {
   ivaPerUnit: number;
   landedCostPerUnit: number;
   totalLandedCost: number;
+  piezasPorCaja: number;
+  cbm: number;
 }
 
 export interface QuoteImage {

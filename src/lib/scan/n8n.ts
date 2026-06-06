@@ -73,6 +73,12 @@ export interface QuoteProductItem {
   totalLandedCost: number;
 }
 
+export interface QuoteImage {
+  id: string;
+  data: string;
+  mimeType: string;
+}
+
 export interface QuoteShareData {
   date: string;
   trmCopUsd: number;
@@ -80,6 +86,16 @@ export interface QuoteShareData {
   grandTotal: number;
   suppliers: Array<{ id: string; name: string; tel?: string; location?: string; bitrixId?: number }>;
   products: QuoteProductItem[];
+  images?: QuoteImage[];
+}
+
+function fileToBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve((reader.result as string).split(',')[1]);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
 }
 
 export async function shareQuote(
@@ -89,13 +105,19 @@ export async function shareQuote(
   const url = import.meta.env.VITE_N8N_SHARE_WEBHOOK_URL;
   if (!url) throw new Error('Share webhook no configurado. Agregá VITE_N8N_SHARE_WEBHOOK_URL en .env.local');
 
-  const form = new FormData();
-  form.append('quoteData', JSON.stringify(quoteData));
-  for (const [id, file] of entityFiles) {
-    form.append(`img_${id}`, file);
-  }
+  const images: QuoteImage[] = await Promise.all(
+    Array.from(entityFiles.entries()).map(async ([id, file]) => ({
+      id,
+      data: await fileToBase64(file),
+      mimeType: file.type || 'image/jpeg',
+    })),
+  );
 
-  const res = await fetch(url, { method: 'POST', body: form });
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ...quoteData, images }),
+  });
   if (!res.ok) throw new Error(`Share failed: ${res.status} ${res.statusText}`);
 
   const data = (await res.json()) as Record<string, unknown>;

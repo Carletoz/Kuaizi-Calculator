@@ -101,7 +101,11 @@ export function ReviewStep() {
         cnyToUsd={state.cnyToUsd}
         ratesFetchedAt={state.ratesFetchedAt}
         ratesUsedFallback={state.ratesUsedFallback}
+        entityFiles={getEntityFiles()}
         onRemove={handleRemove}
+        onUpdate={(id, fields) =>
+          dispatch({ type: 'UPDATE_PRODUCT', payload: { id, ...fields } })
+        }
         onNewQuote={handleNewQuote}
         onShare={handleShare}
         shareStatus={shareStatus}

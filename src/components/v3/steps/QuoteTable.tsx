@@ -1,6 +1,19 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { calculateLandedCost } from '@/lib/calc/v3-landed';
+import { ALL_HS_CATEGORIES } from '@/data/hs-categories';
 import type { ProductEntry, SupplierEntry } from '@/state/session/types';
+
+const CUSTOM_HS = '__custom__';
+
+interface EditDraft {
+  quantity: string;
+  unitPriceRmb: string;
+  piezasPorCaja: string;
+  cbm: string;
+  hsCategoryId: string;
+  arancelRate: string;
+  ivaRate: string;
+}
 
 type ShareStatus = 'idle' | 'sharing' | 'success' | 'error';
 
@@ -11,7 +24,9 @@ interface QuoteTableProps {
   cnyToUsd: number;
   ratesFetchedAt: string | null;
   ratesUsedFallback: boolean;
+  entityFiles?: ReadonlyMap<string, File>;
   onRemove: (id: string) => void;
+  onUpdate: (id: string, fields: Partial<ProductEntry>) => void;
   onNewQuote?: () => void;
   onShare?: () => Promise<void>;
   shareStatus?: ShareStatus;
@@ -26,6 +41,50 @@ function fmtUSD(v: number): string {
 function fmtDate(iso: string | null): string {
   if (!iso) return '—';
   return new Date(iso).toLocaleString('es-CO', { dateStyle: 'short', timeStyle: 'short' });
+}
+
+function ImagePreview({ file }: { file: File }) {
+  const [url, setUrl] = useState<string>('');
+  const [expanded, setExpanded] = useState(false);
+
+  useEffect(() => {
+    const objectUrl = URL.createObjectURL(file);
+    setUrl(objectUrl);
+    return () => URL.revokeObjectURL(objectUrl);
+  }, [file]);
+
+  if (!url) return null;
+
+  return (
+    <>
+      <img
+        src={url}
+        alt="Foto producto"
+        onClick={() => setExpanded(true)}
+        className="w-20 h-20 object-cover rounded-lg border border-gray-200 mb-2 cursor-zoom-in"
+      />
+      {expanded && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/70"
+          onClick={() => setExpanded(false)}
+        >
+          <img
+            src={url}
+            alt="Foto producto"
+            className="max-w-[90vw] max-h-[90vh] rounded-xl shadow-2xl object-contain"
+            onClick={(e) => e.stopPropagation()}
+          />
+          <button
+            type="button"
+            onClick={() => setExpanded(false)}
+            className="absolute top-4 right-4 text-white text-2xl leading-none bg-black/40 rounded-full w-9 h-9 flex items-center justify-center hover:bg-black/60"
+          >
+            ×
+          </button>
+        </div>
+      )}
+    </>
+  );
 }
 
 function DesglosRow({
@@ -47,6 +106,59 @@ function DesglosRow({
   );
 }
 
+function seedDraft(p: ProductEntry): EditDraft {
+  const arancelPct = Math.round(p.arancelRate * 100);
+  const ivaPct = Math.round(p.ivaRate * 100);
+
+  const matchedCat = ALL_HS_CATEGORIES.find(
+    (cat) =>
+      Math.round(cat.arancelRate * 100) === arancelPct &&
+      Math.round(cat.ivaRate * 100) === ivaPct &&
+      (p.hsCategoryId ? cat.id === p.hsCategoryId : true)
+  );
+
+  const hsCategoryId = matchedCat ? matchedCat.id : CUSTOM_HS;
+
+  return {
+    quantity: String(p.quantity),
+    unitPriceRmb: String(p.unitPriceRmb),
+    piezasPorCaja: String(p.piezasPorCaja),
+    cbm: String(p.cbm),
+    hsCategoryId,
+    arancelRate: String(arancelPct),
+    ivaRate: String(ivaPct),
+  };
+}
+
+function draftToFields(d: EditDraft): Partial<ProductEntry> | null {
+  const quantity = parseFloat(d.quantity);
+  const unitPriceRmb = parseFloat(d.unitPriceRmb);
+
+  if (!quantity || quantity <= 0) return null;
+  if (!unitPriceRmb || unitPriceRmb <= 0) return null;
+
+  const arancelPct = Math.min(100, Math.max(0, parseFloat(d.arancelRate) || 0));
+  const ivaPct = Math.min(100, Math.max(0, parseFloat(d.ivaRate) || 0));
+
+  const piezasPorCaja = parseFloat(d.piezasPorCaja);
+  const cbm = parseFloat(d.cbm);
+
+  const fields: Partial<ProductEntry> = {
+    quantity,
+    unitPriceRmb,
+    piezasPorCaja: piezasPorCaja > 0 ? piezasPorCaja : undefined,
+    cbm: cbm > 0 ? cbm : undefined,
+    arancelRate: arancelPct / 100,
+    ivaRate: ivaPct / 100,
+  };
+
+  if (d.hsCategoryId !== CUSTOM_HS && d.hsCategoryId !== '') {
+    fields.hsCategoryId = d.hsCategoryId;
+  }
+
+  return fields;
+}
+
 export function QuoteTable({
   products,
   suppliers,
@@ -54,7 +166,9 @@ export function QuoteTable({
   cnyToUsd,
   ratesFetchedAt,
   ratesUsedFallback,
+  entityFiles,
   onRemove,
+  onUpdate,
   onNewQuote,
   onShare,
   shareStatus = 'idle',
@@ -64,6 +178,34 @@ export function QuoteTable({
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [sellingPrices, setSellingPrices] = useState<Record<string, string>>({});
   const [showOrderBreakdown, setShowOrderBreakdown] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [draft, setDraft] = useState<EditDraft | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
+
+  const startEdit = (p: ProductEntry) => {
+    setSaveError(null);
+    setEditingId(p.id);
+    setDraft(seedDraft(p));
+  };
+
+  const handleSave = (id: string) => {
+    if (!draft) return;
+    const fields = draftToFields(draft);
+    if (!fields) {
+      setSaveError('Cantidad y precio deben ser mayores a 0.');
+      return;
+    }
+    onUpdate(id, fields);
+    setEditingId(null);
+    setDraft(null);
+    setSaveError(null);
+  };
+
+  const handleCancel = () => {
+    setEditingId(null);
+    setDraft(null);
+    setSaveError(null);
+  };
 
   const orderCalcs = products.map((p) =>
     calculateLandedCost({
@@ -185,17 +327,31 @@ export function QuoteTable({
             <tbody>
               {products.map((p) => {
                 const supplier = suppliers.find((s) => s.id === p.supplierId);
+                const isExpanded = expandedId === p.id;
+                const isEditing = editingId === p.id && draft !== null;
+
+                const draftProduct: ProductEntry = isEditing
+                  ? {
+                      ...p,
+                      quantity: parseFloat(draft.quantity) || p.quantity,
+                      unitPriceRmb: parseFloat(draft.unitPriceRmb) || p.unitPriceRmb,
+                      piezasPorCaja: parseFloat(draft.piezasPorCaja) || p.piezasPorCaja,
+                      cbm: parseFloat(draft.cbm) || p.cbm,
+                      arancelRate: (Math.min(100, Math.max(0, parseFloat(draft.arancelRate) || 0))) / 100,
+                      ivaRate: (Math.min(100, Math.max(0, parseFloat(draft.ivaRate) || 0))) / 100,
+                    }
+                  : p;
+
                 const calc = calculateLandedCost({
-                  unitPriceRmb: p.unitPriceRmb,
-                  piezasPorCaja: p.piezasPorCaja,
-                  cbm: p.cbm,
-                  quantity: p.quantity,
+                  unitPriceRmb: draftProduct.unitPriceRmb,
+                  piezasPorCaja: draftProduct.piezasPorCaja,
+                  cbm: draftProduct.cbm,
+                  quantity: draftProduct.quantity,
                   trmCopUsd,
                   cnyToUsd,
-                  arancelRate: p.arancelRate,
-                  ivaRate: p.ivaRate,
+                  arancelRate: draftProduct.arancelRate,
+                  ivaRate: draftProduct.ivaRate,
                 });
-                const isExpanded = expandedId === p.id;
 
                 const rawSellingPrice = sellingPrices[p.id] ?? '';
                 const sellingPriceCop = parseFloat(rawSellingPrice.replace(/,/g, '.'));
@@ -243,73 +399,245 @@ export function QuoteTable({
                       <tr key={`${p.id}-desglose`} className="bg-gray-50 border-b border-gray-200">
                         <td colSpan={8} className="px-4 py-3">
                           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            {/* Cost breakdown */}
+                            {/* Left column: edit form or read-only desglose */}
                             <div className="space-y-0.5">
-                              <p className="text-xs font-bold text-kuaizi-secondary uppercase tracking-wide mb-2">
-                                Desglose por unidad
-                              </p>
-                              <DesglosRow label="Precio EXW" value={calc.exwPerUnit} />
-                              <DesglosRow label="Margen Kuaizi" value={calc.kuaiziMarginPerUnit} pct="5%" />
-                              <DesglosRow label="Flete / CBM" value={calc.freightPerUnit} />
-                              <DesglosRow label="Seguro" value={calc.insurancePerUnit} pct="0.35%" />
-                              <DesglosRow label="CIF" value={calc.cifPerUnit} bold />
-                              <DesglosRow
-                                label="Arancel"
-                                value={calc.arancelPerUnit}
-                                pct={`${Math.round(p.arancelRate * 100)}%`}
-                              />
-                              <DesglosRow
-                                label="IVA"
-                                value={calc.ivaPerUnit}
-                                pct={`${Math.round(p.ivaRate * 100)}%`}
-                              />
-                              <DesglosRow label="Landed / u" value={calc.landedCostPerUnit} bold />
+                              {entityFiles?.get(p.id) && (
+                                <ImagePreview file={entityFiles.get(p.id)!} />
+                              )}
+                              <div className="flex items-center justify-between mb-2">
+                                <p className="text-xs font-bold text-kuaizi-secondary uppercase tracking-wide">
+                                  Desglose por unidad
+                                </p>
+                                {!isEditing && (
+                                  <button
+                                    type="button"
+                                    onClick={() => startEdit(p)}
+                                    className="text-xs text-kuaizi-secondary underline"
+                                  >
+                                    Editar
+                                  </button>
+                                )}
+                              </div>
+
+                              {isEditing ? (
+                                <div className="space-y-3">
+                                  <div className="space-y-1">
+                                    <label className="text-xs font-medium text-kuaizi-ink">Cantidad</label>
+                                    <input
+                                      type="number"
+                                      value={draft.quantity}
+                                      onChange={(e) => setDraft((d) => d ? { ...d, quantity: e.target.value } : d)}
+                                      className="rounded-md border border-gray-300 bg-white text-sm px-3 py-1.5 focus:outline-none focus:border-kuaizi-accent focus:ring-1 focus:ring-kuaizi-accent w-full"
+                                    />
+                                  </div>
+
+                                  <div className="space-y-1">
+                                    <label className="text-xs font-medium text-kuaizi-ink">Precio unitario (¥ RMB)</label>
+                                    <input
+                                      type="number"
+                                      value={draft.unitPriceRmb}
+                                      onChange={(e) => setDraft((d) => d ? { ...d, unitPriceRmb: e.target.value } : d)}
+                                      className="rounded-md border border-gray-300 bg-white text-sm px-3 py-1.5 focus:outline-none focus:border-kuaizi-accent focus:ring-1 focus:ring-kuaizi-accent w-full"
+                                    />
+                                  </div>
+
+                                  <div className="space-y-1">
+                                    <label className="text-xs font-medium text-kuaizi-ink">Piezas / caja</label>
+                                    <input
+                                      type="number"
+                                      value={draft.piezasPorCaja}
+                                      onChange={(e) => setDraft((d) => d ? { ...d, piezasPorCaja: e.target.value } : d)}
+                                      className="rounded-md border border-gray-300 bg-white text-sm px-3 py-1.5 focus:outline-none focus:border-kuaizi-accent focus:ring-1 focus:ring-kuaizi-accent w-full"
+                                    />
+                                  </div>
+
+                                  <div className="space-y-1">
+                                    <label className="text-xs font-medium text-kuaizi-ink">CBM / caja</label>
+                                    <input
+                                      type="number"
+                                      step="0.001"
+                                      value={draft.cbm}
+                                      onChange={(e) => setDraft((d) => d ? { ...d, cbm: e.target.value } : d)}
+                                      className="rounded-md border border-gray-300 bg-white text-sm px-3 py-1.5 focus:outline-none focus:border-kuaizi-accent focus:ring-1 focus:ring-kuaizi-accent w-full"
+                                    />
+                                  </div>
+
+                                  {saveError && (
+                                    <p className="text-xs text-red-600">{saveError}</p>
+                                  )}
+
+                                  <div className="space-y-1">
+                                    <label className="text-xs font-medium text-kuaizi-ink">Categoria arancelaria</label>
+                                    <select
+                                      value={draft.hsCategoryId}
+                                      onChange={(e) => {
+                                        const v = e.target.value;
+                                        if (v === CUSTOM_HS) {
+                                          setDraft((d) => d ? { ...d, hsCategoryId: CUSTOM_HS } : d);
+                                        } else {
+                                          const cat = ALL_HS_CATEGORIES.find((c) => c.id === v);
+                                          if (cat) {
+                                            setDraft((d) =>
+                                              d
+                                                ? {
+                                                    ...d,
+                                                    hsCategoryId: v,
+                                                    arancelRate: String(Math.round(cat.arancelRate * 100)),
+                                                    ivaRate: String(Math.round(cat.ivaRate * 100)),
+                                                  }
+                                                : d
+                                            );
+                                          }
+                                        }
+                                      }}
+                                      className="rounded-md border border-gray-300 bg-white text-sm px-3 py-1.5 focus:outline-none focus:border-kuaizi-accent focus:ring-1 focus:ring-kuaizi-accent w-full"
+                                    >
+                                      {ALL_HS_CATEGORIES.map((cat) => (
+                                        <option key={cat.id} value={cat.id}>
+                                          {cat.label}
+                                        </option>
+                                      ))}
+                                      <option value={CUSTOM_HS}>Personalizado</option>
+                                    </select>
+                                  </div>
+
+                                  {draft.hsCategoryId === CUSTOM_HS && (
+                                    <div className="grid grid-cols-2 gap-2">
+                                      <div className="space-y-1">
+                                        <label className="text-xs font-medium text-kuaizi-ink">Arancel (%)</label>
+                                        <input
+                                          type="number"
+                                          min={0}
+                                          max={100}
+                                          value={draft.arancelRate}
+                                          onChange={(e) => setDraft((d) => d ? { ...d, arancelRate: e.target.value } : d)}
+                                          className="rounded-md border border-gray-300 bg-white text-sm px-3 py-1.5 focus:outline-none focus:border-kuaizi-accent focus:ring-1 focus:ring-kuaizi-accent w-full"
+                                        />
+                                      </div>
+                                      <div className="space-y-1">
+                                        <label className="text-xs font-medium text-kuaizi-ink">IVA (%)</label>
+                                        <input
+                                          type="number"
+                                          min={0}
+                                          max={100}
+                                          value={draft.ivaRate}
+                                          onChange={(e) => setDraft((d) => d ? { ...d, ivaRate: e.target.value } : d)}
+                                          className="rounded-md border border-gray-300 bg-white text-sm px-3 py-1.5 focus:outline-none focus:border-kuaizi-accent focus:ring-1 focus:ring-kuaizi-accent w-full"
+                                        />
+                                      </div>
+                                    </div>
+                                  )}
+
+                                  <div className="flex gap-2 pt-1">
+                                    <button
+                                      type="button"
+                                      onClick={() => handleSave(p.id)}
+                                      disabled={draftToFields(draft) === null}
+                                      className="rounded-lg bg-kuaizi-secondary text-white px-3 py-1.5 text-xs font-semibold disabled:opacity-40"
+                                    >
+                                      Guardar
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={handleCancel}
+                                      className="rounded-lg border border-gray-300 text-gray-600 px-3 py-1.5 text-xs font-semibold"
+                                    >
+                                      Cancelar
+                                    </button>
+                                  </div>
+                                </div>
+                              ) : (
+                                <>
+                                  <DesglosRow label="Precio EXW" value={calc.exwPerUnit} />
+                                  <DesglosRow label="Margen Kuaizi" value={calc.kuaiziMarginPerUnit} pct="5%" />
+                                  <DesglosRow label="Flete / CBM" value={calc.freightPerUnit} />
+                                  <DesglosRow label="Seguro" value={calc.insurancePerUnit} pct="0.35%" />
+                                  <DesglosRow label="CIF" value={calc.cifPerUnit} bold />
+                                  <DesglosRow
+                                    label="Arancel"
+                                    value={calc.arancelPerUnit}
+                                    pct={`${Math.round(draftProduct.arancelRate * 100)}%`}
+                                  />
+                                  <DesglosRow
+                                    label="IVA"
+                                    value={calc.ivaPerUnit}
+                                    pct={`${Math.round(draftProduct.ivaRate * 100)}%`}
+                                  />
+                                  <DesglosRow label="Landed / u" value={calc.landedCostPerUnit} bold />
+                                </>
+                              )}
                             </div>
 
-                            {/* Rentabilidad */}
+                            {/* Right column: rentabilidad + live desglose preview when editing */}
                             <div className="space-y-2">
-                              <p className="text-xs font-bold text-kuaizi-secondary uppercase tracking-wide mb-2">
-                                Rentabilidad
-                              </p>
-                              <p className="text-xs text-gray-500">
-                                Costo landed: {fmtUSD(calc.landedCostPerUnit)} ={' '}
-                                {(calc.landedCostPerUnit * trmCopUsd).toLocaleString('es-CO', {
-                                  style: 'currency',
-                                  currency: 'COP',
-                                  minimumFractionDigits: 0,
-                                  maximumFractionDigits: 0,
-                                })} COP
-                              </p>
-                              <div className="flex flex-col gap-1">
-                                <label className="text-xs font-medium text-kuaizi-ink">
-                                  Precio de venta (COP / u)
-                                </label>
-                                <input
-                                  type="text"
-                                  inputMode="decimal"
-                                  value={rawSellingPrice}
-                                  onChange={(e) =>
-                                    setSellingPrices((prev) => ({ ...prev, [p.id]: e.target.value }))
-                                  }
-                                  placeholder="Ej: 25000"
-                                  className="rounded-md border border-gray-300 bg-white text-sm px-3 py-1.5 focus:outline-none focus:border-kuaizi-accent focus:ring-1 focus:ring-kuaizi-accent w-full"
-                                />
-                              </div>
-                              {rentabilidad !== null && (
-                                <div
-                                  className={`rounded-lg px-3 py-2 flex justify-between items-center ${
-                                    rentabilidad >= 0
-                                      ? 'bg-emerald-50 border border-emerald-200'
-                                      : 'bg-red-50 border border-red-200'
-                                  }`}
-                                >
-                                  <span className={`text-xs font-semibold ${rentabilidad >= 0 ? 'text-emerald-700' : 'text-red-600'}`}>
+                              {isEditing ? (
+                                <>
+                                  <p className="text-xs font-bold text-kuaizi-secondary uppercase tracking-wide mb-2">
+                                    Vista previa
+                                  </p>
+                                  <DesglosRow label="Precio EXW" value={calc.exwPerUnit} />
+                                  <DesglosRow label="Margen Kuaizi" value={calc.kuaiziMarginPerUnit} pct="5%" />
+                                  <DesglosRow label="Flete / CBM" value={calc.freightPerUnit} />
+                                  <DesglosRow label="Seguro" value={calc.insurancePerUnit} pct="0.35%" />
+                                  <DesglosRow label="CIF" value={calc.cifPerUnit} bold />
+                                  <DesglosRow
+                                    label="Arancel"
+                                    value={calc.arancelPerUnit}
+                                    pct={`${Math.round(draftProduct.arancelRate * 100)}%`}
+                                  />
+                                  <DesglosRow
+                                    label="IVA"
+                                    value={calc.ivaPerUnit}
+                                    pct={`${Math.round(draftProduct.ivaRate * 100)}%`}
+                                  />
+                                  <DesglosRow label="Landed / u" value={calc.landedCostPerUnit} bold />
+                                </>
+                              ) : (
+                                <>
+                                  <p className="text-xs font-bold text-kuaizi-secondary uppercase tracking-wide mb-2">
                                     Rentabilidad
-                                  </span>
-                                  <span className={`text-sm font-bold ${rentabilidad >= 0 ? 'text-emerald-700' : 'text-red-600'}`}>
-                                    {rentabilidad >= 0 ? '+' : ''}{rentabilidad.toFixed(2)}%
-                                  </span>
-                                </div>
+                                  </p>
+                                  <p className="text-xs text-gray-500">
+                                    Costo landed: {fmtUSD(calc.landedCostPerUnit)} ={' '}
+                                    {(calc.landedCostPerUnit * trmCopUsd).toLocaleString('es-CO', {
+                                      style: 'currency',
+                                      currency: 'COP',
+                                      minimumFractionDigits: 0,
+                                      maximumFractionDigits: 0,
+                                    })} COP
+                                  </p>
+                                  <div className="flex flex-col gap-1">
+                                    <label className="text-xs font-medium text-kuaizi-ink">
+                                      Precio de venta (COP / u)
+                                    </label>
+                                    <input
+                                      type="text"
+                                      inputMode="decimal"
+                                      value={rawSellingPrice}
+                                      onChange={(e) =>
+                                        setSellingPrices((prev) => ({ ...prev, [p.id]: e.target.value }))
+                                      }
+                                      placeholder="Ej: 25000"
+                                      className="rounded-md border border-gray-300 bg-white text-sm px-3 py-1.5 focus:outline-none focus:border-kuaizi-accent focus:ring-1 focus:ring-kuaizi-accent w-full"
+                                    />
+                                  </div>
+                                  {rentabilidad !== null && (
+                                    <div
+                                      className={`rounded-lg px-3 py-2 flex justify-between items-center ${
+                                        rentabilidad >= 0
+                                          ? 'bg-emerald-50 border border-emerald-200'
+                                          : 'bg-red-50 border border-red-200'
+                                      }`}
+                                    >
+                                      <span className={`text-xs font-semibold ${rentabilidad >= 0 ? 'text-emerald-700' : 'text-red-600'}`}>
+                                        Rentabilidad
+                                      </span>
+                                      <span className={`text-sm font-bold ${rentabilidad >= 0 ? 'text-emerald-700' : 'text-red-600'}`}>
+                                        {rentabilidad >= 0 ? '+' : ''}{rentabilidad.toFixed(2)}%
+                                      </span>
+                                    </div>
+                                  )}
+                                </>
                               )}
                             </div>
                           </div>

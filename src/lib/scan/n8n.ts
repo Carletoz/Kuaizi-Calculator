@@ -1,4 +1,5 @@
 import type { DimensionsSource } from '@/state/session/types';
+import { compressToBase64 } from '@/lib/imageUtils';
 
 export interface SupplierScanResult {
   name: string;
@@ -91,14 +92,6 @@ export interface QuoteShareData {
   images?: QuoteImage[];
 }
 
-function fileToBase64(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve((reader.result as string).split(',')[1]);
-    reader.onerror = reject;
-    reader.readAsDataURL(file);
-  });
-}
 
 export async function shareQuote(
   quoteData: QuoteShareData,
@@ -110,8 +103,8 @@ export async function shareQuote(
   const images: QuoteImage[] = await Promise.all(
     Array.from(entityFiles.entries()).map(async ([id, file]) => ({
       id,
-      data: await fileToBase64(file),
-      mimeType: file.type || 'image/jpeg',
+      data: await compressToBase64(file),
+      mimeType: 'image/jpeg',
     })),
   );
 

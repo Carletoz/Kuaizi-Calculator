@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useSupplierScan } from '@/hooks/useScan';
 import { useSession } from '@/state/session/SessionProvider';
 
@@ -19,13 +19,14 @@ export function SupplierStep() {
     e.target.value = '';
   };
 
-  // Sync form from scan result
-  if (scan.status === 'success' && scan.result) {
-    const r = scan.result;
-    if (name === '' && r.name) setName(r.name);
-    if (tel === '' && r.tel) setTel(r.tel);
-    if (location === '' && r.location) setLocation(r.location);
-  }
+  useEffect(() => {
+    if (scan.status === 'success' && scan.result) {
+      const r = scan.result;
+      if (r.name) setName((prev) => prev === '' ? r.name : prev);
+      if (r.tel) setTel((prev) => prev === '' ? r.tel! : prev);
+      if (r.location) setLocation((prev) => prev === '' ? r.location! : prev);
+    }
+  }, [scan.status, scan.result]);
 
   const canConfirm = name.trim().length > 0;
 

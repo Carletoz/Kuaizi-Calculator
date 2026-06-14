@@ -10,7 +10,7 @@ type PriceCurrency = 'RMB' | 'USD';
 
 interface ProductFormState {
   name: string;
-  quantity: number;
+  numCajas: number;
   priceInputValue: number;
   priceCurrency: PriceCurrency;
   piezasPorCaja: number;
@@ -23,7 +23,7 @@ interface ProductFormState {
 
 const DEFAULT_FORM: ProductFormState = {
   name: '',
-  quantity: 1,
+  numCajas: 1,
   priceInputValue: 0,
   priceCurrency: 'RMB',
   piezasPorCaja: 1,
@@ -52,6 +52,7 @@ export function ProductStep() {
   };
 
   const unitPriceRmb = toRmb(form.priceInputValue, form.priceCurrency);
+  const quantity = form.numCajas * form.piezasPorCaja;
 
   const handleCurrencyToggle = (next: PriceCurrency) => {
     if (next === form.priceCurrency) return;
@@ -103,7 +104,7 @@ export function ProductStep() {
     unitPriceRmb > 0 &&
     form.piezasPorCaja > 0 &&
     form.cbm > 0 &&
-    form.quantity > 0 &&
+    form.numCajas > 0 &&
     state.trmCopUsd > 0 &&
     state.cnyToUsd > 0;
 
@@ -112,7 +113,7 @@ export function ProductStep() {
         unitPriceRmb,
         piezasPorCaja: form.piezasPorCaja,
         cbm: form.cbm,
-        quantity: form.quantity,
+        quantity,
         trmCopUsd: state.trmCopUsd,
         cnyToUsd: state.cnyToUsd,
         arancelRate: form.arancelRate,
@@ -130,7 +131,7 @@ export function ProductStep() {
     }));
   };
 
-  const canConfirm = form.name.trim().length > 0 && form.quantity >= 1 && activeSupplier != null;
+  const canConfirm = form.name.trim().length > 0 && form.numCajas >= 1 && activeSupplier != null;
 
   const handleConfirm = () => {
     if (!canConfirm || !activeSupplier) return;
@@ -142,7 +143,7 @@ export function ProductStep() {
         id: productId,
         supplierId: activeSupplier.id,
         name: form.name.trim(),
-        quantity: form.quantity,
+        quantity,
         unitPriceRmb,
         piezasPorCaja: form.piezasPorCaja,
         cbm: form.cbm,
@@ -231,14 +232,19 @@ export function ProductStep() {
         </div>
 
         <div className="grid grid-cols-2 gap-3">
-          <NumberField
-            label="Cantidad"
-            value={form.quantity}
-            onChange={(v) => setForm((prev) => ({ ...prev, quantity: Math.max(1, Math.round(v)) }))}
-            suffix="uds"
-            step={1}
-            min={1}
-          />
+          <div className="flex flex-col gap-1">
+            <NumberField
+              label="# Cajas"
+              value={form.numCajas}
+              onChange={(v) => setForm((prev) => ({ ...prev, numCajas: Math.max(1, Math.round(v)) }))}
+              suffix="cajas"
+              step={1}
+              min={1}
+            />
+            {form.numCajas > 0 && form.piezasPorCaja > 0 && (
+              <p className="text-xs text-gray-400">= {quantity} uds totales</p>
+            )}
+          </div>
           <div className="flex flex-col gap-1">
             <div className="flex items-center justify-between">
               <label className="text-sm font-medium text-kuaizi-ink">
@@ -340,7 +346,7 @@ export function ProductStep() {
             </span>
           </div>
           <div className="flex justify-between text-sm">
-            <span className="text-gray-500">Total ({form.quantity} uds)</span>
+            <span className="text-gray-500">Total ({quantity} uds)</span>
             <span className="font-bold text-emerald-700">
               ${preview.totalLandedCost.toFixed(2)} USD
             </span>

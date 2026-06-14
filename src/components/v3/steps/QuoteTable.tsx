@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, Fragment } from 'react';
 import { calculateLandedCost } from '@/lib/calc/v3-landed';
 import { ALL_HS_CATEGORIES } from '@/data/hs-categories';
 import type { ProductEntry, SupplierEntry } from '@/state/session/types';
@@ -6,7 +6,8 @@ import type { ProductEntry, SupplierEntry } from '@/state/session/types';
 const CUSTOM_HS = '__custom__';
 
 interface EditDraft {
-  quantity: string;
+  name: string;
+  numCajas: string;
   unitPriceRmb: string;
   piezasPorCaja: string;
   cbm: string;
@@ -109,6 +110,7 @@ function DesglosRow({
 function seedDraft(p: ProductEntry): EditDraft {
   const arancelPct = Math.round(p.arancelRate * 100);
   const ivaPct = Math.round(p.ivaRate * 100);
+  const numCajas = p.piezasPorCaja > 0 ? Math.round(p.quantity / p.piezasPorCaja) : 1;
 
   const matchedCat = ALL_HS_CATEGORIES.find(
     (cat) =>
@@ -117,33 +119,34 @@ function seedDraft(p: ProductEntry): EditDraft {
       (p.hsCategoryId ? cat.id === p.hsCategoryId : true)
   );
 
-  const hsCategoryId = matchedCat ? matchedCat.id : CUSTOM_HS;
-
   return {
-    quantity: String(p.quantity),
+    name: p.name,
+    numCajas: String(numCajas),
     unitPriceRmb: String(p.unitPriceRmb),
     piezasPorCaja: String(p.piezasPorCaja),
     cbm: String(p.cbm),
-    hsCategoryId,
+    hsCategoryId: matchedCat ? matchedCat.id : CUSTOM_HS,
     arancelRate: String(arancelPct),
     ivaRate: String(ivaPct),
   };
 }
 
 function draftToFields(d: EditDraft): Partial<ProductEntry> | null {
-  const quantity = parseFloat(d.quantity);
+  const numCajas = parseInt(d.numCajas, 10);
   const unitPriceRmb = parseFloat(d.unitPriceRmb);
+  const piezasPorCaja = parseFloat(d.piezasPorCaja);
 
-  if (!quantity || quantity <= 0) return null;
+  if (!d.name.trim()) return null;
+  if (!numCajas || numCajas <= 0) return null;
   if (!unitPriceRmb || unitPriceRmb <= 0) return null;
 
+  const quantity = piezasPorCaja > 0 ? numCajas * piezasPorCaja : numCajas;
   const arancelPct = Math.min(100, Math.max(0, parseFloat(d.arancelRate) || 0));
   const ivaPct = Math.min(100, Math.max(0, parseFloat(d.ivaRate) || 0));
-
-  const piezasPorCaja = parseFloat(d.piezasPorCaja);
   const cbm = parseFloat(d.cbm);
 
   const fields: Partial<ProductEntry> = {
+    name: d.name.trim(),
     quantity,
     unitPriceRmb,
     piezasPorCaja: piezasPorCaja > 0 ? piezasPorCaja : undefined,
@@ -192,7 +195,7 @@ export function QuoteTable({
     if (!draft) return;
     const fields = draftToFields(draft);
     if (!fields) {
-      setSaveError('Cantidad y precio deben ser mayores a 0.');
+      setSaveError('Nombre, # cajas y precio son requeridos.');
       return;
     }
     onUpdate(id, fields);
@@ -237,18 +240,11 @@ export function QuoteTable({
     { exw: 0, margin: 0, freight: 0, insurance: 0, cif: 0, arancel: 0, iva: 0, landed: 0 }
   );
 
-  const grandTotal = products.reduce((sum, p) => {
-    const { totalLandedCost } = calculateLandedCost({
-      unitPriceRmb: p.unitPriceRmb,
-      piezasPorCaja: p.piezasPorCaja,
-      cbm: p.cbm,
-      quantity: p.quantity,
-      trmCopUsd,
-      cnyToUsd,
-      arancelRate: p.arancelRate,
-      ivaRate: p.ivaRate,
-    });
-    return sum + totalLandedCost;
+  const grandTotal = orderTotals.landed;
+
+  const orderTotalCbm = products.reduce((sum, p) => {
+    const n = p.piezasPorCaja > 0 ? Math.round(p.quantity / p.piezasPorCaja) : 0;
+    return sum + p.cbm * n;
   }, 0);
 
   const copyAsText = () => {
@@ -311,11 +307,13 @@ export function QuoteTable({
       {/* Table */}
       {products.length > 0 && (
         <div className="overflow-x-auto rounded-xl border border-gray-200 bg-white shadow-sm">
-          <table className="w-full text-xs min-w-[640px]">
+          <table className="w-full text-xs min-w-[720px]">
             <thead>
               <tr className="bg-gray-50 border-b border-gray-200">
                 <th className="text-left px-3 py-2 font-semibold text-gray-500">Proveedor</th>
                 <th className="text-left px-3 py-2 font-semibold text-gray-500">Producto</th>
+                <th className="text-right px-3 py-2 font-semibold text-gray-500"># Cajas</th>
+                <th className="text-right px-3 py-2 font-semibold text-gray-500">CBM</th>
                 <th className="text-right px-3 py-2 font-semibold text-gray-500">Cant.</th>
                 <th className="text-right px-3 py-2 font-semibold text-gray-500">¥ RMB/u</th>
                 <th className="text-right px-3 py-2 font-semibold text-gray-500">Landed/u</th>
@@ -330,15 +328,20 @@ export function QuoteTable({
                 const isExpanded = expandedId === p.id;
                 const isEditing = editingId === p.id && draft !== null;
 
+                const draftNumCajas = draft ? (parseInt(draft.numCajas, 10) || 0) : 0;
+                const draftPiezasPorCaja = draft ? (parseFloat(draft.piezasPorCaja) || p.piezasPorCaja) : p.piezasPorCaja;
+                const draftCbm = draft ? (parseFloat(draft.cbm) || p.cbm) : p.cbm;
+
                 const draftProduct: ProductEntry = isEditing
                   ? {
                       ...p,
-                      quantity: parseFloat(draft.quantity) || p.quantity,
+                      name: draft.name || p.name,
+                      quantity: draftNumCajas * draftPiezasPorCaja || p.quantity,
                       unitPriceRmb: parseFloat(draft.unitPriceRmb) || p.unitPriceRmb,
-                      piezasPorCaja: parseFloat(draft.piezasPorCaja) || p.piezasPorCaja,
-                      cbm: parseFloat(draft.cbm) || p.cbm,
-                      arancelRate: (Math.min(100, Math.max(0, parseFloat(draft.arancelRate) || 0))) / 100,
-                      ivaRate: (Math.min(100, Math.max(0, parseFloat(draft.ivaRate) || 0))) / 100,
+                      piezasPorCaja: draftPiezasPorCaja,
+                      cbm: draftCbm,
+                      arancelRate: Math.min(100, Math.max(0, parseFloat(draft.arancelRate) || 0)) / 100,
+                      ivaRate: Math.min(100, Math.max(0, parseFloat(draft.ivaRate) || 0)) / 100,
                     }
                   : p;
 
@@ -353,6 +356,9 @@ export function QuoteTable({
                   ivaRate: draftProduct.ivaRate,
                 });
 
+                const numCajas = p.piezasPorCaja > 0 ? Math.round(p.quantity / p.piezasPorCaja) : 0;
+                const totalCbm = p.cbm * numCajas;
+
                 const rawSellingPrice = sellingPrices[p.id] ?? '';
                 const sellingPriceCop = parseFloat(rawSellingPrice.replace(/,/g, '.'));
                 const landedCop = calc.landedCostPerUnit * trmCopUsd;
@@ -362,10 +368,12 @@ export function QuoteTable({
                     : null;
 
                 return (
-                  <>
-                    <tr key={p.id} className="border-b border-gray-100 hover:bg-gray-50">
+                  <Fragment key={p.id}>
+                    <tr className="border-b border-gray-100 hover:bg-gray-50">
                       <td className="px-3 py-2 text-kuaizi-ink">{supplier?.name ?? '—'}</td>
                       <td className="px-3 py-2 text-kuaizi-ink">{p.name}</td>
+                      <td className="px-3 py-2 text-right text-kuaizi-ink">{numCajas}</td>
+                      <td className="px-3 py-2 text-right text-kuaizi-ink">{totalCbm.toFixed(3)} m³</td>
                       <td className="px-3 py-2 text-right text-kuaizi-ink">{p.quantity}</td>
                       <td className="px-3 py-2 text-right text-kuaizi-ink">¥{p.unitPriceRmb.toFixed(2)}</td>
                       <td className="px-3 py-2 text-right font-semibold text-kuaizi-ink">
@@ -396,10 +404,10 @@ export function QuoteTable({
                     </tr>
 
                     {isExpanded && (
-                      <tr key={`${p.id}-desglose`} className="bg-gray-50 border-b border-gray-200">
-                        <td colSpan={8} className="px-4 py-3">
+                      <tr className="bg-gray-50 border-b border-gray-200">
+                        <td colSpan={10} className="px-4 py-3">
                           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            {/* Left column: edit form or read-only desglose */}
+                            {/* Left: edit form or read-only desglose */}
                             <div className="space-y-0.5">
                               {entityFiles?.get(p.id) && (
                                 <ImagePreview file={entityFiles.get(p.id)!} />
@@ -422,13 +430,30 @@ export function QuoteTable({
                               {isEditing ? (
                                 <div className="space-y-3">
                                   <div className="space-y-1">
-                                    <label className="text-xs font-medium text-kuaizi-ink">Cantidad</label>
+                                    <label className="text-xs font-medium text-kuaizi-ink">Nombre del producto</label>
                                     <input
-                                      type="number"
-                                      value={draft.quantity}
-                                      onChange={(e) => setDraft((d) => d ? { ...d, quantity: e.target.value } : d)}
+                                      type="text"
+                                      value={draft.name}
+                                      onChange={(e) => setDraft((d) => d ? { ...d, name: e.target.value } : d)}
                                       className="rounded-md border border-gray-300 bg-white text-sm px-3 py-1.5 focus:outline-none focus:border-kuaizi-accent focus:ring-1 focus:ring-kuaizi-accent w-full"
                                     />
+                                  </div>
+
+                                  <div className="space-y-1">
+                                    <label className="text-xs font-medium text-kuaizi-ink"># Cajas</label>
+                                    <input
+                                      type="number"
+                                      min={1}
+                                      step={1}
+                                      value={draft.numCajas}
+                                      onChange={(e) => setDraft((d) => d ? { ...d, numCajas: e.target.value } : d)}
+                                      className="rounded-md border border-gray-300 bg-white text-sm px-3 py-1.5 focus:outline-none focus:border-kuaizi-accent focus:ring-1 focus:ring-kuaizi-accent w-full"
+                                    />
+                                    {draftNumCajas > 0 && draftPiezasPorCaja > 0 && (
+                                      <p className="text-xs text-gray-400">
+                                        = {draftNumCajas * draftPiezasPorCaja} piezas · {(draftCbm * draftNumCajas).toFixed(3)} m³ CBM total
+                                      </p>
+                                    )}
                                   </div>
 
                                   <div className="space-y-1">
@@ -568,7 +593,7 @@ export function QuoteTable({
                               )}
                             </div>
 
-                            {/* Right column: rentabilidad + live desglose preview when editing */}
+                            {/* Right: rentabilidad + live preview when editing */}
                             <div className="space-y-2">
                               {isEditing ? (
                                 <>
@@ -644,13 +669,17 @@ export function QuoteTable({
                         </td>
                       </tr>
                     )}
-                  </>
+                  </Fragment>
                 );
               })}
 
-              {/* Grand total */}
+              {/* Grand total row */}
               <tr className="bg-gray-50 border-t-2 border-gray-300">
-                <td colSpan={5} className="px-3 py-2 text-right font-bold text-gray-600 text-sm">
+                <td colSpan={3} />
+                <td className="px-3 py-2 text-right font-semibold text-gray-500 text-xs">
+                  {orderTotalCbm.toFixed(3)} m³
+                </td>
+                <td colSpan={3} className="px-3 py-2 text-right font-bold text-gray-600 text-sm">
                   TOTAL
                 </td>
                 <td className="px-3 py-2 text-right font-bold text-kuaizi-secondary text-sm">

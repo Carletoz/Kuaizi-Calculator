@@ -53,6 +53,8 @@ export async function scanSupplier(file: File): Promise<SupplierScanResult> {
   };
 }
 
+// NOTE: the n8n Drive-sheet Apps Script must be updated separately to map the new payload keys
+// (old USD-chain fields removed; new RMB+COP fields added below).
 export interface QuoteProductItem {
   id: string;
   supplierId: string;
@@ -61,19 +63,18 @@ export interface QuoteProductItem {
   name: string;
   quantity: number;
   unitPriceRmb: number;
-  arancelRate: number;
-  ivaRate: number;
-  exwPerUnit: number;
-  kuaiziMarginPerUnit: number;
-  freightPerUnit: number;
-  insurancePerUnit: number;
-  cifPerUnit: number;
-  arancelPerUnit: number;
-  ivaPerUnit: number;
-  landedCostPerUnit: number;
-  totalLandedCost: number;
   piezasPorCaja: number;
   cbm: number;
+  arancelRate: number;
+  ivaRate: number;
+  // DDP calc results
+  fleteInternoChinaRmb: number;
+  precioConMargenRmb: number;
+  totalChinaRmb: number;
+  numCajas: number;
+  fleteImpuestosCop: number;
+  precioTotalFinalCop: number;
+  precioUnidadFinalCop: number;
 }
 
 export interface QuoteImage {

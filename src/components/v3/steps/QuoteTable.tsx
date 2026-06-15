@@ -1,6 +1,6 @@
 import { useState, useEffect, Fragment } from 'react';
 import { calculateLandedCost } from '@/lib/calc/v3-landed';
-import { ALL_HS_CATEGORIES } from '@/data/hs-categories';
+import { ALL_HS_CATEGORIES, getHSCategory } from '@/data/hs-categories';
 import type { ProductEntry, SupplierEntry } from '@/state/session/types';
 
 const CUSTOM_HS = '__custom__';
@@ -14,6 +14,7 @@ interface EditDraft {
   hsCategoryId: string;
   arancelRate: string;
   ivaRate: string;
+  fleteInternoChinaRmb: string;
 }
 
 type ShareStatus = 'idle' | 'sharing' | 'success' | 'error';
@@ -35,8 +36,8 @@ interface QuoteTableProps {
   shareError?: string;
 }
 
-function fmtUSD(v: number): string {
-  return v.toLocaleString('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2 });
+function fmtCOP(n: number): string {
+  return Math.round(n).toLocaleString('es-CO');
 }
 
 function fmtDate(iso: string | null): string {
@@ -91,18 +92,18 @@ function ImagePreview({ file }: { file: File }) {
 function DesglosRow({
   label,
   value,
-  pct,
+  unit,
   bold,
 }: {
   label: string;
   value: number;
-  pct?: string;
+  unit: string;
   bold?: boolean;
 }) {
   return (
     <div className={`flex justify-between text-xs py-0.5 ${bold ? 'font-bold border-t border-gray-200 pt-1 mt-0.5' : 'text-gray-500'}`}>
-      <span>{label}{pct ? ` (${pct})` : ''}</span>
-      <span className={bold ? 'text-kuaizi-ink' : ''}>{fmtUSD(value)}</span>
+      <span>{label}</span>
+      <span className={bold ? 'text-kuaizi-ink' : ''}>{value.toLocaleString('es-CO', { maximumFractionDigits: 2 })} {unit}</span>
     </div>
   );
 }
@@ -128,6 +129,7 @@ function seedDraft(p: ProductEntry): EditDraft {
     hsCategoryId: matchedCat ? matchedCat.id : CUSTOM_HS,
     arancelRate: String(arancelPct),
     ivaRate: String(ivaPct),
+    fleteInternoChinaRmb: String(p.fleteInternoChinaRmb ?? 0),
   };
 }
 
@@ -144,6 +146,7 @@ function draftToFields(d: EditDraft): Partial<ProductEntry> | null {
   const arancelPct = Math.min(100, Math.max(0, parseFloat(d.arancelRate) || 0));
   const ivaPct = Math.min(100, Math.max(0, parseFloat(d.ivaRate) || 0));
   const cbm = parseFloat(d.cbm);
+  const fleteInternoChinaRmb = parseFloat(d.fleteInternoChinaRmb) || 0;
 
   const fields: Partial<ProductEntry> = {
     name: d.name.trim(),
@@ -153,6 +156,7 @@ function draftToFields(d: EditDraft): Partial<ProductEntry> | null {
     cbm: cbm > 0 ? cbm : undefined,
     arancelRate: arancelPct / 100,
     ivaRate: ivaPct / 100,
+    fleteInternoChinaRmb,
   };
 
   if (d.hsCategoryId !== CUSTOM_HS && d.hsCategoryId !== '') {
@@ -180,7 +184,6 @@ export function QuoteTable({
 }: QuoteTableProps) {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [sellingPrices, setSellingPrices] = useState<Record<string, string>>({});
-  const [showOrderBreakdown, setShowOrderBreakdown] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draft, setDraft] = useState<EditDraft | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -220,27 +223,15 @@ export function QuoteTable({
       cnyToUsd,
       arancelRate: p.arancelRate,
       ivaRate: p.ivaRate,
+      fleteInternoChinaRmb: p.fleteInternoChinaRmb ?? 0,
     })
   );
 
-  const orderTotals = orderCalcs.reduce(
-    (acc, c, i) => {
-      const q = products[i].quantity;
-      return {
-        exw: acc.exw + c.exwPerUnit * q,
-        margin: acc.margin + c.kuaiziMarginPerUnit * q,
-        freight: acc.freight + c.freightPerUnit * q,
-        insurance: acc.insurance + c.insurancePerUnit * q,
-        cif: acc.cif + c.cifPerUnit * q,
-        arancel: acc.arancel + c.arancelPerUnit * q,
-        iva: acc.iva + c.ivaPerUnit * q,
-        landed: acc.landed + c.totalLandedCost,
-      };
-    },
-    { exw: 0, margin: 0, freight: 0, insurance: 0, cif: 0, arancel: 0, iva: 0, landed: 0 }
-  );
-
-  const grandTotal = orderTotals.landed;
+  const grandTotalCop = orderCalcs.reduce((sum, c) => sum + c.precioTotalFinalCop, 0);
+  const grandTotalCajas = products.reduce((sum, p) => {
+    return sum + (p.piezasPorCaja > 0 ? Math.round(p.quantity / p.piezasPorCaja) : 0);
+  }, 0);
+  const grandTotalFleteCop = orderCalcs.reduce((sum, c) => sum + c.fleteImpuestosCop, 0);
 
   const orderTotalCbm = products.reduce((sum, p) => {
     const n = p.piezasPorCaja > 0 ? Math.round(p.quantity / p.piezasPorCaja) : 0;
@@ -266,7 +257,7 @@ export function QuoteTable({
       const tel = supplier?.tel ? ` ${supplier.tel}` : '';
       lines.push(`[${supplier?.name ?? supplierId}${tel}]`);
       for (const p of prods) {
-        const { landedCostPerUnit, totalLandedCost } = calculateLandedCost({
+        const calc = calculateLandedCost({
           unitPriceRmb: p.unitPriceRmb,
           piezasPorCaja: p.piezasPorCaja,
           cbm: p.cbm,
@@ -275,12 +266,15 @@ export function QuoteTable({
           cnyToUsd,
           arancelRate: p.arancelRate,
           ivaRate: p.ivaRate,
+          fleteInternoChinaRmb: p.fleteInternoChinaRmb ?? 0,
         });
-        lines.push(`- ${p.name} x${p.quantity}  USD ${landedCostPerUnit.toFixed(2)}/u  = USD ${totalLandedCost.toFixed(2)}`);
+        lines.push(
+          `- ${p.name} x${p.quantity}  COP${fmtCOP(calc.precioUnidadFinalCop)}/u  = COP${fmtCOP(calc.precioTotalFinalCop)}`
+        );
       }
       lines.push('');
     }
-    lines.push(`TOTAL: USD ${grandTotal.toFixed(2)}`);
+    lines.push(`TOTAL: COP${fmtCOP(grandTotalCop)}`);
     navigator.clipboard.writeText(lines.join('\n')).catch(() => {});
   };
 
@@ -307,30 +301,56 @@ export function QuoteTable({
       {/* Table */}
       {products.length > 0 && (
         <div className="overflow-x-auto rounded-xl border border-gray-200 bg-white shadow-sm">
-          <table className="w-full text-xs min-w-[720px]">
+          <table className="w-full text-xs min-w-[1400px]">
             <thead>
+              {/* Group header row */}
+              <tr className="bg-gray-100 border-b border-gray-200">
+                <th colSpan={4} className="text-center px-3 py-1.5 font-bold text-gray-600 border-r border-gray-200">
+                  Especificaciones
+                </th>
+                <th colSpan={3} className="text-center px-3 py-1.5 font-bold text-gray-600 border-r border-gray-200">
+                  Logistica
+                </th>
+                <th colSpan={9} className="text-center px-3 py-1.5 font-bold text-gray-600 border-r border-gray-200">
+                  Precio
+                </th>
+                <th colSpan={2} className="text-center px-3 py-1.5 font-bold text-gray-600">
+                  Rentabilidad
+                </th>
+                <th className="px-3 py-1.5" />
+              </tr>
+              {/* Column header row */}
               <tr className="bg-gray-50 border-b border-gray-200">
-                <th className="text-left px-3 py-2 font-semibold text-gray-500">Proveedor</th>
-                <th className="text-left px-3 py-2 font-semibold text-gray-500">Producto</th>
+                <th className="text-center px-3 py-2 font-semibold text-gray-500">#</th>
+                <th className="text-left px-3 py-2 font-semibold text-gray-500">Nombre</th>
+                <th className="text-center px-3 py-2 font-semibold text-gray-500">Foto</th>
+                <th className="text-left px-3 py-2 font-semibold text-gray-500 border-r border-gray-200">HSCODE</th>
+                <th className="text-right px-3 py-2 font-semibold text-gray-500">Piezas/caja</th>
                 <th className="text-right px-3 py-2 font-semibold text-gray-500"># Cajas</th>
-                <th className="text-right px-3 py-2 font-semibold text-gray-500">CBM</th>
-                <th className="text-right px-3 py-2 font-semibold text-gray-500">Cant.</th>
-                <th className="text-right px-3 py-2 font-semibold text-gray-500">¥ RMB/u</th>
-                <th className="text-right px-3 py-2 font-semibold text-gray-500">Landed/u</th>
-                <th className="text-right px-3 py-2 font-semibold text-gray-500">Total</th>
-                <th className="text-center px-3 py-2 font-semibold text-gray-500">Desglose</th>
+                <th className="text-right px-3 py-2 font-semibold text-gray-500 border-r border-gray-200">CBM</th>
+                <th className="text-right px-3 py-2 font-semibold text-gray-500">Precio Fabrica (¥)</th>
+                <th className="text-right px-3 py-2 font-semibold text-gray-500">% Comision</th>
+                <th className="text-right px-3 py-2 font-semibold text-gray-500">Flete Int. China (¥)</th>
+                <th className="text-right px-3 py-2 font-semibold text-gray-500">Precio/u c/margen (¥)</th>
+                <th className="text-right px-3 py-2 font-semibold text-gray-500">Cantidad</th>
+                <th className="text-right px-3 py-2 font-semibold text-gray-500">Total Orden (¥)</th>
+                <th className="text-right px-3 py-2 font-semibold text-gray-500">FLETE+IMP (COP)</th>
+                <th className="text-right px-3 py-2 font-semibold text-gray-500">PRECIO UNIT (COP)</th>
+                <th className="text-right px-3 py-2 font-semibold text-gray-500 border-r border-gray-200">PRECIO TOTAL (COP)</th>
+                <th className="text-right px-3 py-2 font-semibold text-gray-500">Precio Actual Colombia (COP)</th>
+                <th className="text-right px-3 py-2 font-semibold text-gray-500">Rentabilidad %</th>
                 <th className="px-3 py-2" />
               </tr>
             </thead>
             <tbody>
-              {products.map((p) => {
-                const supplier = suppliers.find((s) => s.id === p.supplierId);
+              {products.map((p, idx) => {
                 const isExpanded = expandedId === p.id;
                 const isEditing = editingId === p.id && draft !== null;
 
                 const draftNumCajas = draft ? (parseInt(draft.numCajas, 10) || 0) : 0;
                 const draftPiezasPorCaja = draft ? (parseFloat(draft.piezasPorCaja) || p.piezasPorCaja) : p.piezasPorCaja;
                 const draftCbm = draft ? (parseFloat(draft.cbm) || p.cbm) : p.cbm;
+                const draftFleteInterno = draft ? (parseFloat(draft.fleteInternoChinaRmb) || 0) : (p.fleteInternoChinaRmb ?? 0);
 
                 const draftProduct: ProductEntry = isEditing
                   ? {
@@ -342,6 +362,7 @@ export function QuoteTable({
                       cbm: draftCbm,
                       arancelRate: Math.min(100, Math.max(0, parseFloat(draft.arancelRate) || 0)) / 100,
                       ivaRate: Math.min(100, Math.max(0, parseFloat(draft.ivaRate) || 0)) / 100,
+                      fleteInternoChinaRmb: draftFleteInterno,
                     }
                   : p;
 
@@ -354,67 +375,107 @@ export function QuoteTable({
                   cnyToUsd,
                   arancelRate: draftProduct.arancelRate,
                   ivaRate: draftProduct.ivaRate,
+                  fleteInternoChinaRmb: draftProduct.fleteInternoChinaRmb ?? 0,
                 });
 
                 const numCajas = p.piezasPorCaja > 0 ? Math.round(p.quantity / p.piezasPorCaja) : 0;
                 const totalCbm = p.cbm * numCajas;
 
+                const hsCat = p.hsCategoryId ? getHSCategory(p.hsCategoryId) : undefined;
+                const hsCode = hsCat?.exampleHSCodes[0] ?? '—';
+
                 const rawSellingPrice = sellingPrices[p.id] ?? '';
                 const sellingPriceCop = parseFloat(rawSellingPrice.replace(/,/g, '.'));
-                const landedCop = calc.landedCostPerUnit * trmCopUsd;
                 const rentabilidad =
-                  !isNaN(sellingPriceCop) && sellingPriceCop > 0 && landedCop > 0
-                    ? ((sellingPriceCop - landedCop) / landedCop) * 100
+                  !isNaN(sellingPriceCop) && sellingPriceCop > 0 && calc.precioUnidadFinalCop > 0
+                    ? ((sellingPriceCop - calc.precioUnidadFinalCop) / calc.precioUnidadFinalCop) * 100
                     : null;
 
                 return (
                   <Fragment key={p.id}>
                     <tr className="border-b border-gray-100 hover:bg-gray-50">
-                      <td className="px-3 py-2 text-kuaizi-ink">{supplier?.name ?? '—'}</td>
-                      <td className="px-3 py-2 text-kuaizi-ink">{p.name}</td>
+                      <td className="px-3 py-2 text-center text-gray-500">{idx + 1}</td>
+                      <td className="px-3 py-2 text-kuaizi-ink font-medium">{p.name}</td>
+                      <td className="px-3 py-2 text-center">
+                        {entityFiles?.get(p.id) ? (
+                          <button
+                            type="button"
+                            onClick={() => setExpandedId(isExpanded ? null : p.id)}
+                            className="text-xs text-kuaizi-secondary underline"
+                          >
+                            ver
+                          </button>
+                        ) : (
+                          <span className="text-gray-300">—</span>
+                        )}
+                      </td>
+                      <td className="px-3 py-2 text-gray-500 border-r border-gray-100">{hsCode}</td>
+                      <td className="px-3 py-2 text-right text-kuaizi-ink">{p.piezasPorCaja}</td>
                       <td className="px-3 py-2 text-right text-kuaizi-ink">{numCajas}</td>
-                      <td className="px-3 py-2 text-right text-kuaizi-ink">{totalCbm.toFixed(3)} m³</td>
-                      <td className="px-3 py-2 text-right text-kuaizi-ink">{p.quantity}</td>
+                      <td className="px-3 py-2 text-right text-kuaizi-ink border-r border-gray-100">{totalCbm.toFixed(3)}</td>
                       <td className="px-3 py-2 text-right text-kuaizi-ink">¥{p.unitPriceRmb.toFixed(2)}</td>
-                      <td className="px-3 py-2 text-right font-semibold text-kuaizi-ink">
-                        {fmtUSD(calc.landedCostPerUnit)}
+                      <td className="px-3 py-2 text-right text-gray-500">5.00%</td>
+                      <td className="px-3 py-2 text-right text-kuaizi-ink">¥{(p.fleteInternoChinaRmb ?? 0).toFixed(2)}</td>
+                      <td className="px-3 py-2 text-right text-kuaizi-ink">¥{calc.precioConMargenRmb.toFixed(2)}</td>
+                      <td className="px-3 py-2 text-right text-kuaizi-ink">{p.quantity}</td>
+                      <td className="px-3 py-2 text-right text-kuaizi-ink">¥{calc.totalChinaRmb.toFixed(0)}</td>
+                      <td className="px-3 py-2 text-right text-kuaizi-ink">COP${fmtCOP(calc.fleteImpuestosCop)}</td>
+                      <td className="px-3 py-2 text-right font-semibold text-kuaizi-ink">COP${fmtCOP(calc.precioUnidadFinalCop)}</td>
+                      <td className="px-3 py-2 text-right font-bold text-kuaizi-secondary border-r border-gray-100">COP${fmtCOP(calc.precioTotalFinalCop)}</td>
+                      <td className="px-3 py-2 text-right">
+                        <input
+                          type="text"
+                          inputMode="decimal"
+                          value={rawSellingPrice}
+                          onChange={(e) =>
+                            setSellingPrices((prev) => ({ ...prev, [p.id]: e.target.value }))
+                          }
+                          placeholder="Ej: 25000"
+                          className="rounded-md border border-gray-300 bg-white text-xs px-2 py-1 focus:outline-none focus:border-kuaizi-accent focus:ring-1 focus:ring-kuaizi-accent w-28 text-right"
+                        />
                       </td>
-                      <td className="px-3 py-2 text-right font-bold text-kuaizi-secondary">
-                        {fmtUSD(calc.totalLandedCost)}
+                      <td className="px-3 py-2 text-right">
+                        {rentabilidad !== null ? (
+                          <span className={`font-semibold ${rentabilidad >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>
+                            {rentabilidad >= 0 ? '+' : ''}{rentabilidad.toFixed(2)}%
+                          </span>
+                        ) : (
+                          <span className="text-gray-300">—</span>
+                        )}
                       </td>
                       <td className="px-3 py-2 text-center">
-                        <button
-                          type="button"
-                          onClick={() => setExpandedId(isExpanded ? null : p.id)}
-                          className="text-xs text-kuaizi-secondary underline hover:opacity-70"
-                        >
-                          {isExpanded ? 'cerrar' : 'ver'}
-                        </button>
-                      </td>
-                      <td className="px-3 py-2 text-center">
-                        <button
-                          type="button"
-                          onClick={() => onRemove(p.id)}
-                          className="text-red-400 hover:text-red-600 transition-colors"
-                          aria-label="Remove product"
-                        >
-                          ×
-                        </button>
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => setExpandedId(isExpanded ? null : p.id)}
+                            className="text-xs text-kuaizi-secondary underline hover:opacity-70"
+                          >
+                            {isExpanded ? 'cerrar' : 'editar'}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => onRemove(p.id)}
+                            className="text-red-400 hover:text-red-600 transition-colors"
+                            aria-label="Remove product"
+                          >
+                            ×
+                          </button>
+                        </div>
                       </td>
                     </tr>
 
                     {isExpanded && (
                       <tr className="bg-gray-50 border-b border-gray-200">
-                        <td colSpan={10} className="px-4 py-3">
+                        <td colSpan={19} className="px-4 py-3">
                           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            {/* Left: edit form or read-only desglose */}
+                            {/* Left: image + edit form or desglose */}
                             <div className="space-y-0.5">
                               {entityFiles?.get(p.id) && (
                                 <ImagePreview file={entityFiles.get(p.id)!} />
                               )}
                               <div className="flex items-center justify-between mb-2">
                                 <p className="text-xs font-bold text-kuaizi-secondary uppercase tracking-wide">
-                                  Desglose por unidad
+                                  {isEditing ? 'Editar producto' : 'Desglose DDP'}
                                 </p>
                                 {!isEditing && (
                                   <button
@@ -487,9 +548,17 @@ export function QuoteTable({
                                     />
                                   </div>
 
-                                  {saveError && (
-                                    <p className="text-xs text-red-600">{saveError}</p>
-                                  )}
+                                  <div className="space-y-1">
+                                    <label className="text-xs font-medium text-kuaizi-ink">Flete Interno China (¥ RMB)</label>
+                                    <input
+                                      type="number"
+                                      step="0.01"
+                                      min={0}
+                                      value={draft.fleteInternoChinaRmb}
+                                      onChange={(e) => setDraft((d) => d ? { ...d, fleteInternoChinaRmb: e.target.value } : d)}
+                                      className="rounded-md border border-gray-300 bg-white text-sm px-3 py-1.5 focus:outline-none focus:border-kuaizi-accent focus:ring-1 focus:ring-kuaizi-accent w-full"
+                                    />
+                                  </div>
 
                                   <div className="space-y-1">
                                     <label className="text-xs font-medium text-kuaizi-ink">Categoria arancelaria</label>
@@ -553,6 +622,10 @@ export function QuoteTable({
                                     </div>
                                   )}
 
+                                  {saveError && (
+                                    <p className="text-xs text-red-600">{saveError}</p>
+                                  )}
+
                                   <div className="flex gap-2 pt-1">
                                     <button
                                       type="button"
@@ -573,49 +646,29 @@ export function QuoteTable({
                                 </div>
                               ) : (
                                 <>
-                                  <DesglosRow label="Precio EXW" value={calc.exwPerUnit} />
-                                  <DesglosRow label="Margen Kuaizi" value={calc.kuaiziMarginPerUnit} pct="5%" />
-                                  <DesglosRow label="Flete / CBM" value={calc.freightPerUnit} />
-                                  <DesglosRow label="Seguro" value={calc.insurancePerUnit} pct="0.35%" />
-                                  <DesglosRow label="CIF" value={calc.cifPerUnit} bold />
-                                  <DesglosRow
-                                    label="Arancel"
-                                    value={calc.arancelPerUnit}
-                                    pct={`${Math.round(draftProduct.arancelRate * 100)}%`}
-                                  />
-                                  <DesglosRow
-                                    label="IVA"
-                                    value={calc.ivaPerUnit}
-                                    pct={`${Math.round(draftProduct.ivaRate * 100)}%`}
-                                  />
-                                  <DesglosRow label="Landed / u" value={calc.landedCostPerUnit} bold />
+                                  <DesglosRow label="Precio con margen (5%)" value={calc.precioConMargenRmb} unit="¥" />
+                                  <DesglosRow label="Flete interno China" value={p.fleteInternoChinaRmb ?? 0} unit="¥" />
+                                  <DesglosRow label="Total China" value={calc.totalChinaRmb} unit="¥" bold />
+                                  <DesglosRow label="Flete + Impuestos" value={calc.fleteImpuestosCop} unit="COP" />
+                                  <DesglosRow label="Precio total final" value={calc.precioTotalFinalCop} unit="COP" bold />
+                                  <DesglosRow label="Precio unidad final" value={calc.precioUnidadFinalCop} unit="COP" bold />
                                 </>
                               )}
                             </div>
 
-                            {/* Right: rentabilidad + live preview when editing */}
+                            {/* Right: rentabilidad / live preview when editing */}
                             <div className="space-y-2">
                               {isEditing ? (
                                 <>
                                   <p className="text-xs font-bold text-kuaizi-secondary uppercase tracking-wide mb-2">
                                     Vista previa
                                   </p>
-                                  <DesglosRow label="Precio EXW" value={calc.exwPerUnit} />
-                                  <DesglosRow label="Margen Kuaizi" value={calc.kuaiziMarginPerUnit} pct="5%" />
-                                  <DesglosRow label="Flete / CBM" value={calc.freightPerUnit} />
-                                  <DesglosRow label="Seguro" value={calc.insurancePerUnit} pct="0.35%" />
-                                  <DesglosRow label="CIF" value={calc.cifPerUnit} bold />
-                                  <DesglosRow
-                                    label="Arancel"
-                                    value={calc.arancelPerUnit}
-                                    pct={`${Math.round(draftProduct.arancelRate * 100)}%`}
-                                  />
-                                  <DesglosRow
-                                    label="IVA"
-                                    value={calc.ivaPerUnit}
-                                    pct={`${Math.round(draftProduct.ivaRate * 100)}%`}
-                                  />
-                                  <DesglosRow label="Landed / u" value={calc.landedCostPerUnit} bold />
+                                  <DesglosRow label="Precio con margen (5%)" value={calc.precioConMargenRmb} unit="¥" />
+                                  <DesglosRow label="Flete interno China" value={draftFleteInterno} unit="¥" />
+                                  <DesglosRow label="Total China" value={calc.totalChinaRmb} unit="¥" bold />
+                                  <DesglosRow label="Flete + Impuestos" value={calc.fleteImpuestosCop} unit="COP" />
+                                  <DesglosRow label="Precio total final" value={calc.precioTotalFinalCop} unit="COP" bold />
+                                  <DesglosRow label="Precio unidad final" value={calc.precioUnidadFinalCop} unit="COP" bold />
                                 </>
                               ) : (
                                 <>
@@ -623,13 +676,7 @@ export function QuoteTable({
                                     Rentabilidad
                                   </p>
                                   <p className="text-xs text-gray-500">
-                                    Costo landed: {fmtUSD(calc.landedCostPerUnit)} ={' '}
-                                    {(calc.landedCostPerUnit * trmCopUsd).toLocaleString('es-CO', {
-                                      style: 'currency',
-                                      currency: 'COP',
-                                      minimumFractionDigits: 0,
-                                      maximumFractionDigits: 0,
-                                    })} COP
+                                    Costo unidad: COP${fmtCOP(calc.precioUnidadFinalCop)}
                                   </p>
                                   <div className="flex flex-col gap-1">
                                     <label className="text-xs font-medium text-kuaizi-ink">
@@ -675,17 +722,24 @@ export function QuoteTable({
 
               {/* Grand total row */}
               <tr className="bg-gray-50 border-t-2 border-gray-300">
-                <td colSpan={3} />
+                <td colSpan={5} />
                 <td className="px-3 py-2 text-right font-semibold text-gray-500 text-xs">
+                  {grandTotalCajas}
+                </td>
+                <td className="px-3 py-2 text-right font-semibold text-gray-500 text-xs border-r border-gray-100">
                   {orderTotalCbm.toFixed(3)} m³
                 </td>
-                <td colSpan={3} className="px-3 py-2 text-right font-bold text-gray-600 text-sm">
+                <td colSpan={6} className="px-3 py-2 text-right font-bold text-gray-600 text-sm">
                   TOTAL
                 </td>
-                <td className="px-3 py-2 text-right font-bold text-kuaizi-secondary text-sm">
-                  {fmtUSD(grandTotal)}
+                <td className="px-3 py-2 text-right font-bold text-gray-600 text-xs">
+                  COP${fmtCOP(grandTotalFleteCop)}
                 </td>
-                <td colSpan={2} />
+                <td />
+                <td className="px-3 py-2 text-right font-bold text-kuaizi-secondary text-sm border-r border-gray-100">
+                  COP${fmtCOP(grandTotalCop)}
+                </td>
+                <td colSpan={3} />
               </tr>
             </tbody>
           </table>
@@ -694,34 +748,6 @@ export function QuoteTable({
 
       {products.length === 0 && (
         <p className="text-sm text-gray-400 text-center py-4">No hay productos en la cotizacion todavia.</p>
-      )}
-
-      {/* Order breakdown */}
-      {products.length > 0 && (
-        <div className="rounded-xl border border-gray-200 bg-white shadow-sm overflow-hidden">
-          <button
-            type="button"
-            onClick={() => setShowOrderBreakdown((v) => !v)}
-            className="w-full flex items-center justify-between px-4 py-3 text-sm font-semibold text-kuaizi-ink hover:bg-gray-50 transition-colors"
-          >
-            <span>Desglose total de la orden ({products.length} producto{products.length !== 1 ? 's' : ''})</span>
-            <span className="text-gray-400 text-xs">{showOrderBreakdown ? '▲' : '▼'}</span>
-          </button>
-
-          {showOrderBreakdown && (
-            <div className="px-4 pb-4 space-y-0.5 border-t border-gray-100">
-              <div className="pt-3" />
-              <DesglosRow label="EXW total" value={orderTotals.exw} />
-              <DesglosRow label="Margen Kuaizi" value={orderTotals.margin} pct="5%" />
-              <DesglosRow label="Flete total" value={orderTotals.freight} />
-              <DesglosRow label="Seguro total" value={orderTotals.insurance} pct="0.35%" />
-              <DesglosRow label="CIF total" value={orderTotals.cif} bold />
-              <DesglosRow label="Aranceles totales" value={orderTotals.arancel} />
-              <DesglosRow label="IVA total" value={orderTotals.iva} />
-              <DesglosRow label="Landed total" value={orderTotals.landed} bold />
-            </div>
-          )}
-        </div>
       )}
 
       {/* Share result */}
@@ -734,7 +760,7 @@ export function QuoteTable({
             rel="noopener noreferrer"
             className="text-xs font-semibold text-emerald-700 underline shrink-0"
           >
-            Abrir Sheet →
+            Abrir Sheet &rarr;
           </a>
         </div>
       )}

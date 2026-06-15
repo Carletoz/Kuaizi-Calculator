@@ -42,6 +42,7 @@ export function ReviewStep() {
           cnyToUsd: state.cnyToUsd,
           arancelRate: p.arancelRate,
           ivaRate: p.ivaRate,
+          fleteInternoChinaRmb: p.fleteInternoChinaRmb ?? 0,
         });
         const supplier = supplierMap.get(p.supplierId);
         return {
@@ -56,11 +57,12 @@ export function ReviewStep() {
           cbm: p.cbm,
           arancelRate: p.arancelRate,
           ivaRate: p.ivaRate,
+          fleteInternoChinaRmb: p.fleteInternoChinaRmb ?? 0,
           ...calc,
         };
       });
 
-      const grandTotal = products.reduce((s, p) => s + p.totalLandedCost, 0);
+      const grandTotal = products.reduce((s, p) => s + p.precioTotalFinalCop, 0);
 
       const quoteData: QuoteShareData = {
         date: new Date().toLocaleDateString('es-CO'),

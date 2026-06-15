@@ -19,6 +19,7 @@ interface ProductFormState {
   hsCategoryId: string;
   arancelRate: number;
   ivaRate: number;
+  fleteInternoChinaRmb: number;
 }
 
 const DEFAULT_FORM: ProductFormState = {
@@ -32,6 +33,7 @@ const DEFAULT_FORM: ProductFormState = {
   hsCategoryId: '',
   arancelRate: 0,
   ivaRate: 0.19,
+  fleteInternoChinaRmb: 0,
 };
 
 export function ProductStep() {
@@ -118,6 +120,7 @@ export function ProductStep() {
         cnyToUsd: state.cnyToUsd,
         arancelRate: form.arancelRate,
         ivaRate: form.ivaRate,
+        fleteInternoChinaRmb: form.fleteInternoChinaRmb,
       })
     : null;
 
@@ -151,6 +154,7 @@ export function ProductStep() {
         hsCategoryId: form.hsCategoryId || undefined,
         arancelRate: form.arancelRate,
         ivaRate: form.ivaRate,
+        fleteInternoChinaRmb: form.fleteInternoChinaRmb,
       },
     });
     dispatch({ type: 'SET_STEP', payload: 'review' });
@@ -312,6 +316,16 @@ export function ProductStep() {
             )}
           </div>
         </div>
+
+        <NumberField
+          label="Flete Interno China (¥)"
+          value={form.fleteInternoChinaRmb}
+          onChange={set('fleteInternoChinaRmb')}
+          prefix="¥"
+          hint="RMB"
+          step={0.01}
+          min={0}
+        />
       </div>
 
       {/* HS Category selector */}
@@ -340,15 +354,15 @@ export function ProductStep() {
             Vista previa del costo
           </p>
           <div className="flex justify-between text-sm">
-            <span className="text-gray-500">Costo landed / u</span>
+            <span className="text-gray-500">Precio / u final</span>
             <span className="font-semibold text-emerald-700">
-              ${preview.landedCostPerUnit.toFixed(2)} USD
+              {Math.round(preview.precioUnidadFinalCop).toLocaleString('es-CO')} COP
             </span>
           </div>
           <div className="flex justify-between text-sm">
             <span className="text-gray-500">Total ({quantity} uds)</span>
             <span className="font-bold text-emerald-700">
-              ${preview.totalLandedCost.toFixed(2)} USD
+              {Math.round(preview.precioTotalFinalCop).toLocaleString('es-CO')} COP
             </span>
           </div>
         </div>

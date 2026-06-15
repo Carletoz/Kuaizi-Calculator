@@ -25,6 +25,7 @@ export interface ProductEntry {
   hsCategoryId?: string;
   arancelRate: number;
   ivaRate: number;
+  fleteInternoChinaRmb?: number;
 }
 
 export interface SessionState {
